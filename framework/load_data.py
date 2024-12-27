@@ -44,24 +44,13 @@ def load_asqa(path):
     return test_out_dict
 
 
-def load_eli5(path):
-    # input_data = json.load(open(path))
-    # ndocs = NDOCS
 
-    # test_out_dict = {"question": [], "answer": [], "context": []}
-    # for instance_idx, item in enumerate(input_data):
-    #     prompt = item["question"]
-    #     ctxs = item["docs"][:ndocs]  # top 5 relevant docs of the question
-    #     answer = item["answer"]
+##https://github.com/facebookresearch/ELI5/tree/main
+def load_eli5():
+    eli5 = load_dataset("defunct-datasets/eli5",trust_remote_code=True)
+    eli5_test = eli5['test']
+    import pdb; pdb.set_trace()
 
-    #     test_out_dict["question"].append(prompt)
-    #     test_out_dict["answer"].append(answer)
-    #     test_out_dict["context"].append(ctxs)
-
-    # return test_out_dict
-
-
-def load_2wiki_multi_hop(path):
     pass
 
 
@@ -111,14 +100,60 @@ def load_pubhealth(path):
 
 
 
+###2wiki multi-hop data, 12576 sample, test data.
+# https://github.com/Alab-NII/2wikimultihop?tab=readme-ov-file
+def load_2wiki_multi_hop(path):
+    ##read the json file
+    test_out_dict = {"question": [], "answer": [], "context": []}
+    with open(path, 'r') as f:
+        input_data = json.load(f)
+        
+    for instance_idx, item in enumerate(input_data):
+        prompt = item["question"]
+        ctxs = item["context"]  # top 5 relevant docs of the question
+        answer = item["answer"]
+
+        test_out_dict["question"].append(prompt)
+        test_out_dict["answer"].append(answer)
+        test_out_dict["context"].append(ctxs)
+
+    return test_out_dict
+
+
+
+#https://github.com/KGQA/QALD-10
 def load_qald10(path):
     pass
 
 
-def load_fever(path):
+
+
+#https://github.com/sheffieldnlp/naacl2018-fever/blob/master/scripts/download-data.sh
+#https://github.com/sheffieldnlp/naacl2018-fever/blob/master/scripts/download-paper.sh
+# training data, 
+def load_fever(path):  
     pass
+    # input_data = load_jsonlines(path)
+    # ndocs = NDOCS
+
+    # train_out_dict = {"question": [], "answer": [], "context": [], "claim": [], "label": []}
+    # for instance_idx, item in enumerate(input_data):
+    #     ctxs = item["evidence"][:ndocs]  # top 5 relevant docs of the question
+    #     claim = item["claim"]
+    #     label= item["label"]
+
+    #     train_out_dict["question"].append(prompt)
+    #     train_out_dict["answer"].append(answer)
+    #     train_out_dict["context"].append(ctxs)
+    #     train_out_dict["claim"].append(claim)
+    #     train_out_dict["label"].append(label)
+    # return train_out_dict
+
+
 
 
 # load_asqa('../eval_data/asqa_eval_gtr_top100.json')
 # load_pubhealth('../eval_data/health_claims_processed.jsonl')
-load_pop_qa('../eval_data/popqa_longtail_w_gs.jsonl')
+# load_pop_qa('../eval_data/popqa_longtail_w_gs.jsonl')
+# load_2wiki_multi_hop('../eval_data/2wikimultihop/test.json')
+load_eli5()
