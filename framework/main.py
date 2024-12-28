@@ -1,6 +1,9 @@
 from load_data import load_hotpot_qa, load_adv_hotpot_qa, load_asqa, load_eli5, load_2wiki_multi_hop, load_pop_qa, load_pubhealth, load_qald10
-from structuring import structure
+from structuring import structure, load_t2t_model
 from theme_scoping import theme_scoping
+from verification import verify
+from generation import generate_subquery, generate_answer
+from doc_retrieval import doc_retrieval
 
 # This is the main file for the framework
 
@@ -24,8 +27,9 @@ def run_firas(query, evolving_graph=None, top_k=5, iteration=0, dataset=None):
     
     ## Steo 3.1: Structure (Text to Graph)
     triples = []
+    model, tokenizer = load_t2t_model(model_path="pat-jj/text2triple-flan-t5")
     for document in retrieved_documents:
-        triples.extend(structure(document))
+        triples.extend(structure(document, tokenizer, model))
         
     ## Step 3.2: Merge (Graph to Evolving Graph)
     if evolving_graph is None:

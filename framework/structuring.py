@@ -32,7 +32,7 @@ def format_triples(triples):
     return [(triple.split("|")[0].split("> ")[1], triple.split("|")[1].split("> ")[1], triple.split("|")[2].split("> ")[1]) for triple in triples]
 
 
-def structure(text):
+def structure(text, tokenizer, model):
     # Tokenize input with proper padding and attention mask
     inputs = tokenizer(
         text,
