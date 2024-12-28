@@ -1,6 +1,6 @@
 from load_data import load_hotpot_qa, load_adv_hotpot_qa, load_asqa, load_eli5, load_2wiki_multi_hop, load_pop_qa, load_pubhealth, load_qald10
 from structuring import structure, load_t2t_model
-from theme_scoping import theme_scoping
+from theme_scoping import theme_scoping, ThemeScopingConfig, ThemeScoping
 from verification import verify
 from generation import generate_subquery, generate_answer
 from doc_retrieval import doc_retrieval
@@ -21,7 +21,15 @@ def run_firas(query, evolving_graph=None, top_k=5, iteration=0, dataset=None):
     print(f"Current Query/Subquery: {query}")
     
     ## Step 1: Theme Scoping
-    target_documents = theme_scoping(query)
+    config = ThemeScopingConfig(
+        method="distribution",
+        batch_size=32,
+        threshold=0.2,
+        top_k_docs=50000
+    )
+    theme_scoper = ThemeScoping(config)
+    target_documents = theme_scoper(query)
+    
     ## Step 2: Text Retrieval
     retrieved_documents = doc_retrieval(query, target_documents, top_k=5)
     
