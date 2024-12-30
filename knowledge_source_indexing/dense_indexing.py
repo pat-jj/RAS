@@ -39,22 +39,37 @@ def mean_pooling(token_embeddings, attention_mask):
     sentence_embeddings = token_embeddings.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
     return sentence_embeddings
 
+def debug_gpu_info():
+    print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] Number of GPUs available: {torch.cuda.device_count()}")
+    print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] Current device: {torch.cuda.current_device()}")
+    print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] Device name: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    if dist.is_initialized():
+        print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] World size: {dist.get_world_size()}")
+        print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] Global rank: {dist.get_rank()}")
+    else:
+        print(f"[Rank {os.environ.get('LOCAL_RANK', 'N/A')}] Distributed training not initialized!")
+
 class ContrieverEncoder:
-    def __init__(self, model_name="facebook/contriever-msmarco", local_rank=-1):
-        self.local_rank = local_rank
-        self.device = torch.device(f'cuda:{local_rank}' if local_rank != -1 else 'cuda:0')
+    def __init__(self, model_name="facebook/contriever-msmarco"):
+        # Get local rank from environment variable
+        self.local_rank = int(os.environ.get('LOCAL_RANK', -1))
         
+        # Important: Set the device before initializing the model
+        if self.local_rank != -1:
+            torch.cuda.set_device(self.local_rank)
+        self.device = torch.device(f'cuda:{self.local_rank}' if self.local_rank != -1 else 'cuda:0')
+        
+        print(f"[Rank {self.local_rank}] Initializing model on device: {self.device}")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(self.device)
         
-        if local_rank != -1:
-            self.model = DDP(self.model, device_ids=[local_rank])
+        if self.local_rank != -1:
+            self.model = DDP(self.model, device_ids=[self.local_rank])
         
         self.model.eval()
 
     @torch.no_grad()
     def encode_texts(self, texts, batch_size=32):
-        # Create dataset and dataloader
         dataset = TextDataset(texts, self.tokenizer)
         sampler = DistributedSampler(dataset) if self.local_rank != -1 else None
         dataloader = DataLoader(
@@ -68,18 +83,13 @@ class ContrieverEncoder:
         all_embeddings = []
         
         for batch in tqdm(dataloader, disable=self.local_rank not in [-1, 0]):
-            # Move batch to device
             batch = {k: v.to(self.device) for k, v in batch.items()}
-            
-            # Get embeddings
             outputs = self.model(**batch)
-            # Use mean pooling instead of CLS token
             embeddings = mean_pooling(outputs[0], batch['attention_mask'])
             all_embeddings.append(embeddings.cpu())
             
         embeddings = torch.cat(all_embeddings, dim=0)
         
-        # Gather embeddings from all GPUs if in distributed mode
         if self.local_rank != -1:
             gathered_embeddings = [torch.zeros_like(embeddings) for _ in range(dist.get_world_size())]
             dist.all_gather(gathered_embeddings, embeddings)
@@ -88,14 +98,13 @@ class ContrieverEncoder:
         
         return embeddings.numpy()
 
-def setup_distributed(local_rank):
-    if local_rank != -1:
+def setup_distributed():
+    if 'LOCAL_RANK' in os.environ:
+        local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(local_rank)
         dist.init_process_group(backend='nccl')
-
-def cleanup_distributed():
-    if dist.is_initialized():
-        dist.destroy_process_group()
+        return local_rank
+    return -1
 
 def save_to_faiss(embeddings, texts, output_dir):
     output_dir = Path(output_dir)
@@ -106,7 +115,7 @@ def save_to_faiss(embeddings, texts, output_dir):
     
     # Create FAISS index
     dimension = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+    index = faiss.IndexFlatIP(dimension)
     index.add(embeddings)
     
     # Save index
@@ -118,30 +127,32 @@ def save_to_faiss(embeddings, texts, output_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, required=True, help="Path to input JSON file with Wikipedia texts")
-    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save FAISS index and mapping")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for encoding")
-    parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training")
+    parser.add_argument("--input_file", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--batch_size", type=int, default=32)
     args = parser.parse_args()
     
-    # Setup distributed processing
-    setup_distributed(args.local_rank)
+    # Setup distributed training
+    local_rank = setup_distributed()
+    debug_gpu_info()
     
     # Load Wikipedia texts
     with open(args.input_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    texts = [item['text'] for item in data]  # Adjust based on your JSON structure
+        texts = json.load(f)
+        if not isinstance(texts, list):
+            raise ValueError("Input JSON should contain a list of texts")
     
     # Initialize encoder and encode texts
-    encoder = ContrieverEncoder(local_rank=args.local_rank)
+    encoder = ContrieverEncoder()
     embeddings = encoder.encode_texts(texts, batch_size=args.batch_size)
     
     # Save embeddings and mapping (only on main process)
-    if args.local_rank in [-1, 0]:
+    if local_rank in [-1, 0]:
         save_to_faiss(embeddings, texts, args.output_dir)
     
-    # Cleanup distributed processing
-    cleanup_distributed()
+    # Cleanup
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()
