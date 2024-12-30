@@ -33,7 +33,7 @@ declare -A WIKI_VERSIONS=(
 
 # Calculate number of GPUs
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
-BATCH_SIZE=256
+BATCH_SIZE=512
 
 # Function to check if process completed successfully
 check_success() {
