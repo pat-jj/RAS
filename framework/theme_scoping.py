@@ -3,10 +3,6 @@
 
 # Theme Scoping (query -> target documents (corpus))
 
-def theme_scoping(query):
-    pass
-
-
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader

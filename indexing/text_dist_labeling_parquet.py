@@ -225,6 +225,33 @@ def get_class_probabilities(texts: List[str],
     
     return create_results_dataframe(final_results, texts)
 
+# def create_results_dataframe(results_dict, original_texts):
+#     """Create a DataFrame from the results dictionary maintaining original order."""
+#     # Get label mapping from any result
+#     sample_probs = next(iter(results_dict.values()))['probabilities']
+#     num_labels = len(sample_probs)
+    
+#     # Initialize empty arrays
+#     all_probs = np.zeros((len(original_texts), num_labels))
+#     all_texts = []
+    
+#     # Fill arrays maintaining original order
+#     for i in range(len(original_texts)):
+#         result = results_dict.get(i, {'text': original_texts[i], 'probabilities': np.zeros(num_labels)})
+#         all_texts.append(result['text'])
+#         all_probs[i] = result['probabilities']
+    
+#     # Create DataFrame
+#     results_df = pd.DataFrame(all_probs, columns=[f'label_{i}' for i in range(num_labels)])
+#     results_df.insert(0, 'text', all_texts)
+    
+#     return results_df
+
+def ckpt_cleanup(output_path):
+    checkpoint_dir = Path(output_path).parent / "checkpoints"
+    for checkpoint in checkpoint_dir.glob("*.pkl"):
+        checkpoint.unlink()
+
 def create_results_dataframe(results_dict, original_texts):
     """Create a DataFrame from the results dictionary maintaining original order."""
     # Get label mapping from any result
@@ -235,11 +262,22 @@ def create_results_dataframe(results_dict, original_texts):
     all_probs = np.zeros((len(original_texts), num_labels))
     all_texts = []
     
-    # Fill arrays maintaining original order
-    for i in range(len(original_texts)):
-        result = results_dict.get(i, {'text': original_texts[i], 'probabilities': np.zeros(num_labels)})
-        all_texts.append(result['text'])
-        all_probs[i] = result['probabilities']
+    # Process in chunks to manage memory
+    chunk_size = 100000  # Adjust based on available RAM
+    num_chunks = (len(original_texts) + chunk_size - 1) // chunk_size
+    
+    for chunk_idx in range(num_chunks):
+        start_idx = chunk_idx * chunk_size
+        end_idx = min((chunk_idx + 1) * chunk_size, len(original_texts))
+        
+        # Process chunk
+        for i in range(start_idx, end_idx):
+            result = results_dict.get(i, {
+                'text': original_texts[i], 
+                'probabilities': np.zeros(num_labels)
+            })
+            all_texts.append(result['text'])
+            all_probs[i] = result['probabilities']
     
     # Create DataFrame
     results_df = pd.DataFrame(all_probs, columns=[f'label_{i}' for i in range(num_labels)])
@@ -247,55 +285,84 @@ def create_results_dataframe(results_dict, original_texts):
     
     return results_df
 
-def ckpt_cleanup(output_path):
-    checkpoint_dir = Path(output_path).parent / "checkpoints"
-    for checkpoint in checkpoint_dir.glob("*.pkl"):
-        checkpoint.unlink()
+def save_results_parquet(results_df, output_path, chunk_size=100000):
+    """Save results to parquet files in chunks."""
+    output_path = Path(output_path)
+    base_path = output_path.parent / output_path.stem
+    base_path.mkdir(exist_ok=True)
+    
+    # Calculate number of chunks
+    num_chunks = (len(results_df) + chunk_size - 1) // chunk_size
+    
+    for chunk_idx in range(num_chunks):
+        start_idx = chunk_idx * chunk_size
+        end_idx = min((chunk_idx + 1) * chunk_size, len(results_df))
+        
+        # Get chunk and save to parquet
+        chunk_df = results_df.iloc[start_idx:end_idx]
+        chunk_path = base_path / f"chunk_{chunk_idx:05d}.parquet"
+        chunk_df.to_parquet(
+            chunk_path,
+            compression='snappy',  # Good balance between compression and speed
+            index=False
+        )
+        
+    # Save metadata
+    metadata = {
+        'num_chunks': num_chunks,
+        'chunk_size': chunk_size,
+        'total_rows': len(results_df),
+        'columns': results_df.columns.tolist()
+    }
+    with open(base_path / "metadata.json", 'w') as f:
+        json.dump(metadata, f)
 
+def load_results_parquet(base_path):
+    """Load results from parquet files, with optional chunked reading."""
+    base_path = Path(base_path)
+    
+    # Load metadata
+    with open(base_path / "metadata.json", 'r') as f:
+        metadata = json.load(f)
+    
+    def chunk_generator():
+        for chunk_idx in range(metadata['num_chunks']):
+            chunk_path = base_path / f"chunk_{chunk_idx:05d}.parquet"
+            yield pd.read_parquet(chunk_path)
+    
+    return chunk_generator(), metadata
+
+# Modified main function
 def main():
     mp.set_start_method('spawn')
     
-    data_dir = '/shared/eng/pj20/firas_data/datasets/classifier_labeling_data'
+    # Process Wiki data
+    data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/all_wiki_text.json"
+    data_dir = '/shared/eng/pj20/firas_data/knowledge_source/wiki_2020'
     checkpoint_path = '/shared/eng/pj20/firas_data/classifiers/best_model'
     
-    # # Process queries
-    # queries_path = f"{data_dir}/queries_hotpot.json"
-    # with open(queries_path, 'r') as f:
-    #     queries = json.load(f)
-    
-    # output_path = f'{data_dir}/query_class_probabilities.csv'
-    # print("\nProcessing queries...")
-    # results = get_class_probabilities(queries, checkpoint_path, output_path)
-    # results.to_csv(output_path, index=False)
-    # print(f"Results saved to {output_path}")
-    # # remove all checkpoints
-    # ckpt_cleanup(output_path)
-    
-    # # Process documents
-    # documents_path = f"{data_dir}/documents_hotpot.json"
-    # with open(documents_path, 'r') as f:
-    #     documents = json.load(f)
-    
-    # output_path = f'{data_dir}/document_class_probabilities.csv'
-    # print("\nProcessing documents...")
-    # results = get_class_probabilities(documents, checkpoint_path, output_path)
-    # results.to_csv(output_path, index=False)
-    # print(f"Results saved to {output_path}")
-    # # remove all checkpoints
-    # ckpt_cleanup(output_path)
-    
-    # Process Wiki
-    data_path = "/shared/eng/pj20/hotpotqa/data/all_wiki_text.json"
     with open(data_path, 'r') as f:
         wiki_text = json.load(f)
     
-    output_path = f'{data_dir}/wiki_class_probabilities.csv'
+    output_base = f'{data_dir}/wiki_class_probabilities'
     print("\nProcessing Wiki text...")
-    results = get_class_probabilities(wiki_text, checkpoint_path, output_path, save_interval=500000)
-    results.to_csv(output_path, index=False)
-    print(f"Results saved to {output_path}")
-    # remove all checkpoints
-    ckpt_cleanup(output_path)
+    results = get_class_probabilities(wiki_text, checkpoint_path, output_base, save_interval=500000)
+    
+    # Save results in chunks
+    print("Saving results to parquet files...")
+    save_results_parquet(results, output_base)
+    print(f"Results saved to {output_base}")
+    
+    # Example of loading and processing results in chunks
+    print("\nLoading results for verification...")
+    chunk_generator, metadata = load_results_parquet(output_base)
+    
+    # Process chunks as needed
+    for chunk_df in chunk_generator:
+        # Process each chunk
+        # For example, calculate mean probabilities per chunk
+        mean_probs = chunk_df.iloc[:, 1:].mean()  # Skip text column
+        print(f"Mean probabilities for chunk: {mean_probs}")
 
 if __name__ == "__main__":
     main()
