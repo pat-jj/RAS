@@ -1,3 +1,3 @@
 export CUDA_VISIBLE_DEVICES=6
 
-python doc_classifier_train_1.py
+python doc_classifier_train.py

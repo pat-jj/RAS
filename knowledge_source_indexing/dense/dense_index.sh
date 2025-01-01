@@ -26,14 +26,14 @@ except ImportError as e:
 
 # Define Wikipedia versions and their paths
 declare -A WIKI_VERSIONS=(
-    ["2017"]="/shared/eng/pj20/firas_data/knowledge_source/wiki_2017/all_wiki_text.json:/shared/eng/pj20/firas_data/knowledge_source/wiki_2017/embedding"
-    ["2018"]="/shared/eng/pj20/firas_data/knowledge_source/wiki_2018/all_wiki_text.json:/shared/eng/pj20/firas_data/knowledge_source/wiki_2018/embedding"
+    # ["2017"]="/shared/eng/pj20/firas_data/knowledge_source/wiki_2017/all_wiki_text.json:/shared/eng/pj20/firas_data/knowledge_source/wiki_2017/embedding"
+    # ["2018"]="/shared/eng/pj20/firas_data/knowledge_source/wiki_2018/all_wiki_text.json:/shared/eng/pj20/firas_data/knowledge_source/wiki_2018/embedding"
     ["2020"]="/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/all_wiki_text.json:/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/embedding"
 )
 
 # Calculate number of GPUs
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
-BATCH_SIZE=512
+BATCH_SIZE=256
 
 # Function to check if process completed successfully
 check_success() {
@@ -85,7 +85,8 @@ process_wiki_version() {
 }
 
 # Process each Wikipedia version sequentially
-for version in "2017" "2018" "2020"; do
+# for version in "2017" "2018" "2020"; do
+for version in "2020"; do
     echo "Starting processing of Wikipedia $version"
     
     # Check if output already exists
