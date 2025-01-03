@@ -1,3 +1,6 @@
+### This script identifies questions that don't need both subqueries and re
+### The model can directly answer the question
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from sentence_transformers import SentenceTransformer
 import torch

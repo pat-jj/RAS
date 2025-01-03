@@ -1,3 +1,5 @@
+### This script generates subqueries for questions in the hotpotqa dataset
+
 import json
 import logging
 from copy import deepcopy

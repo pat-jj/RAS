@@ -1,3 +1,6 @@
+### This script retrieves documents from the hotpotqa dataset using the contriever model
+### It is distributed across multiple GPUs
+
 import faiss
 import json
 import torch
@@ -302,170 +305,132 @@ class WikiRetriever:
         return final_embeddings
 
     def retrieve(self, queries: List[str], top_k: int = 5) -> List[Dict]:
-        """Retrieval method with detailed progress tracking"""
+        """Retrieval method with guaranteed tensor size consistency"""
         try:
             if self.rank == 0:
                 self.logger.info(f"Starting retrieval for {len(queries)} queries...")
             
-            dist.barrier()
-            
-            # Track overall progress
+            # Initialize progress tracking
             total_progress = torch.zeros(self.world_size, dtype=torch.float32, device=f'cuda:{self.rank}')
             progress_tensor = torch.zeros(1, dtype=torch.float32, device=f'cuda:{self.rank}')
             
-            # Encode queries (with caching)
+            # Get query embeddings
             query_embeddings = self.encode_queries(queries)
             
-            # Shard queries across GPUs
-            queries_per_gpu = len(queries) // self.world_size
-            start_query = self.rank * queries_per_gpu
-            end_query = start_query + queries_per_gpu if self.rank != self.world_size - 1 else len(queries)
+            # Calculate exact distribution
+            total_queries = len(queries)
+            base_per_gpu = total_queries // self.world_size
+            remainder = total_queries % self.world_size
             
-            local_query_embeddings = query_embeddings[start_query:end_query]
-            local_queries = queries[start_query:end_query]
-            num_local_queries = len(local_queries)
-            
-            self.logger.info(f"Rank {self.rank}: Processing {num_local_queries} queries ({start_query} to {end_query})")
-            
-            success_tensor = torch.zeros(1, dtype=torch.bool, device=f'cuda:{self.rank}')
-            search_batch_size = 2
-            all_local_scores = []
-            all_local_indices = []
-            
-            try:
-                # Progress logging setup
-                log_interval = max(1, num_local_queries // 20)  # Log roughly 20 times per GPU
-                last_log_time = time.time()
-                start_time = time.time()
-                
-                for i in range(0, num_local_queries, search_batch_size):
-                    batch_end = min(i + search_batch_size, num_local_queries)
-                    batch_embeddings = local_query_embeddings[i:batch_end]
-                    
-                    # Update progress
-                    current_progress = (i + search_batch_size) / num_local_queries * 100
-                    progress_tensor.fill_(min(current_progress, 100.0))
-                    
-                    # Gather progress from all GPUs periodically
-                    if i % log_interval == 0 or batch_end == num_local_queries:
-                        dist.all_gather(list(total_progress.split(1)), progress_tensor)
-                        
-                        if self.rank == 0:
-                            avg_progress = total_progress.mean().item()
-                            elapsed_time = time.time() - start_time
-                            queries_processed = sum(min(p.item() / 100 * n, n) 
-                                                for p, n in zip(total_progress, [queries_per_gpu] * self.world_size))
-                            
-                            # Calculate processing speed and ETA
-                            if elapsed_time > 0:
-                                qps = queries_processed / elapsed_time
-                                remaining_queries = len(queries) - queries_processed
-                                eta = remaining_queries / qps if qps > 0 else 0
-                                
-                                self.logger.info(
-                                    f"\nOverall Progress: {avg_progress:.1f}% | "
-                                    f"Speed: {qps:.1f} queries/sec | "
-                                    f"ETA: {eta/60:.1f} minutes\n"
-                                    f"Individual GPU Progress: " + 
-                                    " | ".join(f"GPU {j}: {p.item():.1f}%" for j, p in enumerate(total_progress))
-                                )
-                    
-                    # Perform search
-                    search_vectors = batch_embeddings.cpu().numpy().astype('float32')
-                    local_scores, local_indices = self.gpu_index.search(search_vectors, top_k)
-                    
-                    local_indices += self.start_idx
-                    all_local_scores.append(local_scores)
-                    all_local_indices.append(local_indices)
-                    
-                    # Memory management
-                    torch.cuda.empty_cache()
-                    
-                    # Detailed batch statistics (every 10 batches)
-                    if i % (10 * search_batch_size) == 0:
-                        current_time = time.time()
-                        batch_time = current_time - last_log_time
-                        if batch_time > 0:
-                            batch_qps = (batch_end - i) / batch_time
-                            self.logger.info(
-                                f"Rank {self.rank} - Batch {i//search_batch_size}: "
-                                f"Processing {batch_qps:.1f} queries/sec"
-                            )
-                        last_log_time = current_time
-                
-                # Mark successful completion
-                success_tensor.fill_(True)
-                local_scores = np.concatenate(all_local_scores, axis=0)
-                local_indices = np.concatenate(all_local_indices, axis=0)
-                
-            except Exception as e:
-                self.logger.error(f"Error during search on rank {self.rank}: {str(e)}")
-                success_tensor.fill_(False)
-                local_scores = np.array([])
-                local_indices = np.array([])
-            
-            # Final status check
-            success_list = [torch.zeros_like(success_tensor) for _ in range(self.world_size)]
-            dist.all_gather(success_list, success_tensor)
-            all_succeeded = all(t.item() for t in success_list)
-            
-            if not all_succeeded:
-                if self.rank == 0:
-                    failed_ranks = [i for i, t in enumerate(success_list) if not t.item()]
-                    self.logger.error(f"Failed ranks: {failed_ranks}")
-                return None
-            
-            # Prepare for gathering results
-            max_queries = queries_per_gpu + (1 if self.rank < len(queries) % self.world_size else 0)
-            padding_size = max_queries - len(local_scores)
-            
-            if padding_size > 0:
-                local_scores = np.pad(local_scores, ((0, padding_size), (0, 0)), mode='constant')
-                local_indices = np.pad(local_indices, ((0, padding_size), (0, 0)), mode='constant')
-            
-            # Final gathering of results
-            gathered_scores = [torch.zeros((max_queries, top_k), dtype=torch.float32) for _ in range(self.world_size)]
-            gathered_indices = [torch.zeros((max_queries, top_k), dtype=torch.int64) for _ in range(self.world_size)]
-            
-            dist.barrier()
-            dist.all_gather(gathered_scores, torch.from_numpy(local_scores))
-            dist.all_gather(gathered_indices, torch.from_numpy(local_indices))
+            # Calculate target size for ALL tensors
+            target_size = base_per_gpu + 1  # Always pad to maximum possible size
             
             if self.rank == 0:
-                # Log final statistics
-                total_time = time.time() - start_time
-                overall_qps = len(queries) / total_time if total_time > 0 else 0
-                self.logger.info(
-                    f"\nRetrieval completed:"
-                    f"\nTotal time: {total_time:.1f} seconds"
-                    f"\nOverall speed: {overall_qps:.1f} queries/sec"
-                    f"\nTotal queries processed: {len(queries)}"
-                )
+                self.logger.info(f"Total queries: {total_queries}, Base per GPU: {base_per_gpu}, "
+                            f"Remainder: {remainder}, Target tensor size: {target_size}")
+            
+            # Calculate this rank's exact portion
+            start_idx = self.rank * base_per_gpu + min(self.rank, remainder)
+            end_idx = start_idx + base_per_gpu + (1 if self.rank < remainder else 0)
+            
+            # Get local queries
+            local_queries = queries[start_idx:end_idx]
+            local_embeddings = query_embeddings[start_idx:end_idx]
+            
+            self.logger.info(f"Rank {self.rank} processing queries {start_idx} to {end_idx} "
+                            f"(processing {len(local_queries)} queries)")
+            
+            # Process in small batches
+            search_batch_size = 2
+            all_scores = []
+            all_indices = []
+            
+            for i in range(0, len(local_embeddings), search_batch_size):
+                batch_end = min(i + search_batch_size, len(local_embeddings))
+                batch = local_embeddings[i:batch_end]
                 
-                # Merge results
+                # FAISS search
+                search_vectors = batch.cpu().numpy().astype('float32')
+                scores, indices = self.gpu_index.search(search_vectors, top_k)
+                
+                indices += self.start_idx
+                all_scores.append(scores)
+                all_indices.append(indices)
+                
+                # Update progress
+                progress = (i + search_batch_size) / len(local_embeddings) * 100
+                progress_tensor.fill_(min(progress, 100.0))
+                
+                if i % (len(local_embeddings) // 20) == 0:
+                    dist.all_gather(list(total_progress.split(1)), progress_tensor)
+                    if self.rank == 0:
+                        avg_progress = total_progress.mean().item()
+                        self.logger.info(f"Progress: {avg_progress:.1f}%")
+            
+            # Concatenate results and convert to tensors
+            local_scores = np.concatenate(all_scores, axis=0) if all_scores else np.zeros((0, top_k))
+            local_indices = np.concatenate(all_indices, axis=0) if all_indices else np.zeros((0, top_k))
+            
+            scores_tensor = torch.from_numpy(local_scores).cuda(self.rank)
+            indices_tensor = torch.from_numpy(local_indices).cuda(self.rank)
+            
+            # Always pad to target_size
+            current_size = scores_tensor.size(0)
+            if current_size < target_size:
+                pad_size = target_size - current_size
+                scores_tensor = torch.nn.functional.pad(scores_tensor, (0, 0, 0, pad_size))
+                indices_tensor = torch.nn.functional.pad(indices_tensor, (0, 0, 0, pad_size))
+            
+            # Verify sizes
+            self.logger.info(f"Rank {self.rank} tensor size after padding: {scores_tensor.size()}")
+            
+            # Synchronize before gathering
+            dist.barrier()
+            
+            # Prepare gather tensors (all same size)
+            gathered_scores = [
+                torch.zeros((target_size, top_k), dtype=torch.float32, device=f'cuda:{self.rank}')
+                for _ in range(self.world_size)
+            ]
+            gathered_indices = [
+                torch.zeros((target_size, top_k), dtype=torch.long, device=f'cuda:{self.rank}')
+                for _ in range(self.world_size)
+            ]
+            
+            # Gather results
+            dist.all_gather(gathered_scores, scores_tensor)
+            dist.all_gather(gathered_indices, indices_tensor)
+            
+            # Process results only on rank 0
+            if self.rank == 0:
                 results = []
                 query_idx = 0
                 
                 for gpu_idx in range(self.world_size):
-                    gpu_queries = queries_per_gpu + (1 if gpu_idx < len(queries) % self.world_size else 0)
-                    scores = gathered_scores[gpu_idx][:gpu_queries]
-                    indices = gathered_indices[gpu_idx][:gpu_queries]
+                    # Calculate actual number of valid results for this GPU
+                    gpu_start = gpu_idx * base_per_gpu + min(gpu_idx, remainder)
+                    gpu_end = gpu_start + base_per_gpu + (1 if gpu_idx < remainder else 0)
+                    num_valid = gpu_end - gpu_start
+                    
+                    # Only process actual valid results
+                    scores = gathered_scores[gpu_idx][:num_valid].cpu().numpy()
+                    indices = gathered_indices[gpu_idx][:num_valid].cpu().numpy()
                     
                     for q_scores, q_indices in zip(scores, indices):
-                        query_results = []
-                        for score, idx in zip(q_scores, q_indices):
-                            if 0 <= idx < len(self.text_mapping):
-                                query_results.append({
-                                    'text': self.text_mapping[idx],
-                                    'score': float(score)
-                                })
+                        query_results = [
+                            {'text': self.text_mapping[idx], 'score': float(score)}
+                            for score, idx in zip(q_scores, q_indices)
+                            if 0 <= idx < len(self.text_mapping)
+                        ]
                         results.append({
                             'query': queries[query_idx],
                             'retrieved_docs': query_results
                         })
                         query_idx += 1
                 
+                self.logger.info(f"Completed retrieval with {len(results)} results")
                 return results
+                
             return None
             
         except Exception as e:
@@ -531,19 +496,18 @@ class QueryDataset(Dataset):
             self.logger.error(f"Error tokenizing query at index {idx}: '{query}'. Error: {str(e)}")
             raise
 
+
 def main_worker(rank, world_size, args):
-    # Set the device for this process
     torch.cuda.set_device(rank)
     setup_distributed(rank, world_size)
     logger = setup_logging(args.output_dir, rank)
     
     try:
-        # Load HotpotQA data and extract queries on all ranks
         logger.info(f"Loading HotpotQA data from {args.hotpot_path}")
         with open(args.hotpot_path, 'r') as f:
             hotpot_data = json.load(f)
         
-        # Extract queries and metadata
+        # Extract queries and metadata with improved tracking
         queries = []
         query_info = []
         
@@ -569,15 +533,7 @@ def main_worker(rank, world_size, args):
                             'question_idx': item_idx,
                             'sub_idx': sub_idx
                         })
-        
-        # Log query statistics
-        main_queries = sum(1 for info in query_info if info['type'] == 'main')
-        sub_queries = sum(1 for info in query_info if info['type'] == 'sub')
-        logger.info(f"Rank {rank}: Extracted {main_queries} main queries and {sub_queries} sub-queries")
-        if queries:
-            logger.info(f"Rank {rank}: Sample queries: {queries[:3]}")
 
-        # Initialize retriever and process queries
         retriever = WikiRetriever(
             args.faiss_path,
             args.text_mapping_path,
@@ -587,29 +543,46 @@ def main_worker(rank, world_size, args):
             embeddings_cache_dir=args.embeddings_cache_dir
         )
 
-        # Retrieve documents
         logger.info(f"Rank {rank}: Starting retrieval for {len(queries)} queries")
         retrieval_results = retriever.retrieve(queries, top_k=5)
 
         # Save results on rank 0
         if retrieval_results is not None and rank == 0:
-            # Validate results
             if len(retrieval_results) != len(queries):
                 raise ValueError(f"Retrieved {len(retrieval_results)} results but had {len(queries)} queries")
                 
             output_path = os.path.join(args.output_dir, "wiki_retrieval_results.json")
             logger.info(f"Saving results to {output_path}")
             
-            # Map results back using query_info
+            # Create result map for both main questions and subqueries
             result_map = {}  # Map to store results by question_idx
             for idx, (result, info) in enumerate(zip(retrieval_results, query_info)):
+                question_idx = info['question_idx']
+                
+                if question_idx not in result_map:
+                    result_map[question_idx] = {
+                        'main_retrieved_docs': None,
+                        'sub_retrieved_docs': []
+                    }
+                
                 if info['type'] == 'main':
-                    result_map[info['question_idx']] = result['retrieved_docs']
+                    result_map[question_idx]['main_retrieved_docs'] = result['retrieved_docs']
+                else:  # type == 'sub'
+                    # Ensure sub_retrieved_docs list is long enough
+                    while len(result_map[question_idx]['sub_retrieved_docs']) <= info['sub_idx']:
+                        result_map[question_idx]['sub_retrieved_docs'].append(None)
+                    result_map[question_idx]['sub_retrieved_docs'][info['sub_idx']] = result['retrieved_docs']
             
-            # Update original data
+            # Update original data with both main and sub-query results
             for idx, item in enumerate(hotpot_data):
                 if idx in result_map:
-                    item['wiki_retrieved_docs'] = result_map[idx]
+                    item['wiki_retrieved_docs'] = result_map[idx]['main_retrieved_docs']
+                    
+                    # Add retrieved docs for subqueries
+                    if 'sub_queries' in item and item['sub_queries']:
+                        for sub_idx, sub_query in enumerate(item['sub_queries']):
+                            if sub_idx < len(result_map[idx]['sub_retrieved_docs']):
+                                sub_query['wiki_retrieved_docs'] = result_map[idx]['sub_retrieved_docs'][sub_idx]
                 else:
                     logger.warning(f"No results found for question {idx}")
             
