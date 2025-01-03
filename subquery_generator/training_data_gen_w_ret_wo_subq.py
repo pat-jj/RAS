@@ -134,6 +134,7 @@ def generate_retrieval_examples(hotpot_path, retrieval_path, output_path_1, outp
     retrieval_map = {item['question']: item['wiki_retrieved_docs'] for item in retrieval_data}
     
     llm_answers = []
+    processed_questions_answers = {}
     if os.path.exists(output_path_1):
         with open(output_path_1, 'r') as f:
             llm_answers = json.load(f)
@@ -219,7 +220,7 @@ def generate_retrieval_examples(hotpot_path, retrieval_path, output_path_1, outp
 if __name__ == "__main__":
     generate_retrieval_examples(
         '/shared/eng/pj20/firas_data/datasets/hotpotqa/hotpot_with_subqueries.json',
-        '/shared/eng/pj20/firas_data/datasets/hotpotqa/wiki_retrieval/wiki_retrieval_results_.json',
+        '/shared/eng/pj20/firas_data/datasets/hotpotqa/wiki_retrieval/wiki_retrieval_results.json',
         '/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/llama_retrieval_answers.json',
         '/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json'
     )

@@ -107,6 +107,7 @@ def generate_no_subquery_examples(hotpot_path, output_path_1, output_path_2):
         hotpot_data = json.load(f)
         
     llm_answers = []
+    processed_questions_answers = {}
     if os.path.exists(output_path_1):
         with open(output_path_1, 'r') as f:
             llm_answers = json.load(f)
