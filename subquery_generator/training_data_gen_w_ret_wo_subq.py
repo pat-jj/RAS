@@ -42,7 +42,7 @@ class RetrievalClassifier:
         sorted_docs = sorted(retrieved_docs, key=lambda x: x['score'], reverse=True)
         
         # Create the base prompt without context
-        base_prompt = f"Based on the context above, please provide a direct, short answer (use one or two words if possible) to this question: {question}"
+        base_prompt = f"The context above are dense retrieval results for the question. Please provide a direct, short answer (use one or two words if possible) to this question: {question}"
         
         # Calculate base prompt tokens
         base_tokens = len(self.tokenizer.encode(base_prompt))
@@ -131,7 +131,7 @@ def generate_retrieval_examples(hotpot_path, retrieval_path, output_path_1, outp
         retrieval_data = json.load(f)
     
     # Create question to retrieval mapping
-    retrieval_map = {item['question']: item['wiki_retrieved_docs'] for item in retrieval_data}
+    retrieval_map = {item['query']: item['retrieved_docs'] for item in retrieval_data}
     
     llm_answers = []
     processed_questions_answers = {}
@@ -150,13 +150,13 @@ def generate_retrieval_examples(hotpot_path, retrieval_path, output_path_1, outp
     print(f"Generating LLM answers for {len(rest_of_hotpot_data)} questions")
 
     for item in tqdm(rest_of_hotpot_data):
-        if item['question'] not in retrieval_map:
+        if item['question'].strip() not in retrieval_map:
             print(f"Warning: No retrieval results found for question: {item['question']}")
             continue
             
         llm_answer = classifier.get_llm_answer_with_retrieval(
-            item['question'], 
-            retrieval_map[item['question']]
+            item['question'].strip(), 
+            retrieval_map[item['question'].strip()]
         )
                 
         processed_item = {
