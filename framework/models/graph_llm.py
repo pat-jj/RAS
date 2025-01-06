@@ -106,13 +106,44 @@ class GraphLLM(torch.nn.Module):
             return contextlib.nullcontext()
 
     def encode_graphs(self, samples):
-        graphs = samples['graph']
-        graphs = graphs.to(self.model.device)
-        n_embeds, _ = self.graph_encoder(graphs.x, graphs.edge_index.long(), graphs.edge_attr)
-
-        # mean pooling
-        g_embeds = scatter(n_embeds, graphs.batch, dim=0, reduce='mean')
-
+        """
+        Encode multiple graphs per query
+        Args:
+            samples: Dictionary containing 'graphs' key with list of graphs per query
+        Returns:
+            Tensor of graph embeddings
+        """
+        batch_size = len(samples['id'])
+        g_embeds_list = []
+        
+        # Process each query in the batch
+        for i in range(batch_size):
+            query_graphs = samples['graphs'][i]
+            graph_embeds = []
+            
+            # Encode each graph for this query
+            for graph in query_graphs:
+                graph = graph.to(self.model.device)
+                n_embeds, _ = self.graph_encoder(graph.x, graph.edge_index.long(), graph.edge_attr)
+                # Mean pooling for each graph
+                g_embed = scatter(n_embeds, 
+                                torch.zeros(n_embeds.size(0), dtype=torch.long, device=self.model.device), 
+                                dim=0, 
+                                reduce='mean')
+                graph_embeds.append(g_embed)
+            
+            # Combine embeddings of all graphs for this query
+            if graph_embeds:
+                query_embed = torch.stack(graph_embeds).mean(dim=0)  # Mean pooling across graphs
+            else:
+                # Fallback if no graphs (shouldn't happen with filtered data)
+                query_embed = torch.zeros((1, self.projector[0].in_features), 
+                                    device=self.model.device)
+            
+            g_embeds_list.append(query_embed)
+        
+        # Stack all query embeddings
+        g_embeds = torch.stack(g_embeds_list)
         return g_embeds
 
     def forward(self, samples):
