@@ -6,3 +6,5 @@ claude_api.py
 *.pt
 *.json
 play.ipynb
+logs
+common

@@ -16,22 +16,6 @@ class HotpotQAProcessor:
         """
         self.sentence_model = SentenceTransformer(bert_model)
         self.embed_dim = self.sentence_model.get_sentence_embedding_dimension()
-    
-    def process_triple_str(self, triple_str):
-        """Process a triple string in format '(S> subj| P> pred| O> obj)'"""
-        # Remove parentheses and split by |
-        triple_str = triple_str.strip('()')
-        parts = triple_str.split('|')
-        
-        # Extract subject, predicate, object
-        subject = parts[0].replace('S>', '').strip()
-        predicate = parts[1].replace('P>', '').strip()
-        object_ = parts[2].replace('O>', '').strip()
-        
-        # Convert predicate to more natural language
-        predicate = predicate.lower().replace('_', ' ')
-        
-        return subject, predicate, object_
 
     def create_graph_from_triples(self, triple_strs):
         """Convert a list of triple strings into a PyG graph with predicate encodings"""
@@ -90,10 +74,9 @@ class HotpotQAProcessor:
         
         return graph, triple_strs  # Return original triple strings for description
 
-    def format_document_triples(self, triples, doc_title):
+    def format_document_triples(self, triples):
         """Format triples from one document keeping original format"""
-        formatted = f"Information from {doc_title}:\n"
-        formatted += " ".join(f"({triple})" for triple in triples)  # Keep original triple format
+        formatted = " ".join(f"({triple})" for triple in triples)  # Keep original triple format
         return formatted
 
     def process_data(self, hotpot_path, triples_path, output_dir):
@@ -135,7 +118,7 @@ class HotpotQAProcessor:
                             graphs.append(graph)
                             
                             # Format triples for this document
-                            doc_triples.append(self.format_document_triples(orig_triples, title))
+                            doc_triples.append(self.format_document_triples(orig_triples))
                 
                 if not graphs:  # Skip if no graphs were created
                     continue
@@ -144,15 +127,14 @@ class HotpotQAProcessor:
                     'id': len(processed_data),
                     'question': item['question'],
                     'graphs': graphs,
-                    'desc': "\n\n".join(doc_triples),  # Join all documents' triples
+                    'desc': "Retrieved Graph Information:\n" + "\n\n".join(doc_triples).replace(") ((", "), ("),  # Join all documents' triples
                     'label': item['answer']
                 }
                 
                 processed_data.append(processed_item)
                 
             except Exception as e:
-                print(f"Error processing item {item['id']}: {e}")
-                print(f"Item: {item['question']}")
+                print(f"Error processing item {item['question']}: {e}")
                 continue
         
         # Save processed data
@@ -183,7 +165,8 @@ class HotpotQAProcessor:
 if __name__ == "__main__":
     processor = HotpotQAProcessor()
     processed_data = processor.process_data(
-        hotpot_path="/shared/eng/pj20/firas_data/datasets/hotpotqa/processed_hotpot.json",
+        # hotpot_path="/shared/eng/pj20/firas_data/datasets/hotpotqa/processed_hotpot.json",
+        hotpot_path="/shared/eng/pj20/firas_data/datasets/hotpotqa/filtered/hotpot_filtered.json",
         triples_path="/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json",
         output_dir="/shared/eng/pj20/firas_data/inference_model/hotpotqa_train"
     )
