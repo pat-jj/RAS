@@ -11,5 +11,6 @@ python train_planner.py \
     --finetune_method lora \
     --batch_size 4 \
     --grad_accum_steps 4 \
+    --data_dir /shared/eng/pj20/firas_data/action_planner/hotpot_train \
     --output_dir /shared/eng/pj20/firas_data/action_planner/hotpot_train/checkpoints_lora \
     --epochs 3

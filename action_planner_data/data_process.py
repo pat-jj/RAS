@@ -257,16 +257,17 @@ class GraphProcessor:
 
 def get_instruction():
     return \
-"""You are a planner to determine if the question can be answered with current information.
-You will be output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
-You will be output [SUBQ] with the subquery if the question needs a subquery.
-You will be output [SUFFICIENT] if the question can be answered with provided information.
-"""
 # """You are a planner to determine if the question can be answered with current information.
-# Output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
-# Output [SUBQ] with the subquery if still needs a subquery.
-# Output [SUFFICIENT] if the question can be answered with the provided information.
+# You will be output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
+# You will be output [SUBQ] with the subquery if the question needs a subquery.
+# You will be output [SUFFICIENT] if the question can be answered with provided information.
 # """
+"""You are a planner to determine if the question can be answered with current information and output the appropriate label as well as the subquery if needed.
+Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval.
+Output [SUBQ] with an subquery for retrieval if still needs a subquery.
+Output [SUFFICIENT] if the question can be answered with the provided information.
+"""
+# Output [SUBQ] with the question itself if it can be answered with retrieval by the question itself.
 
 
 def main():
@@ -276,7 +277,7 @@ def main():
     q_retrieval_answered = load_hotpotqa_questions_can_be_answered_with_single_retrieval('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json')
     text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json')
     
-    output_dir = '/shared/eng/pj20/firas_data/action_planner/hotpot_train'
+    output_dir = '/shared/eng/pj20/firas_data/action_planner/hotpot_train_1'
     
     processed_data = []
     processed_questions = set()
@@ -301,19 +302,19 @@ def main():
             processed_questions.add(item['question'])
              
     ## Case 1: The question can be answered with retrieval by the question itself
-    print("Processing Case 1: The question can be answered with retrieval by the question itself ...")
-    for item in tqdm(q_retrieval_answered):
-        if item['question'] not in processed_questions:
-            if item['can_answer_with_retrieval']:
-                processed_item = {
-                    'input': instruction + "\n" + item['question'],
-                    'label': "[SUBQ]" + " " + item['question'],
-                    'graphs': [],
-                }
-                processed_data.append(processed_item)
-                processed_questions.add(item['question'])
+    # print("Processing Case 1: The question can be answered with retrieval by the question itself ...")
+    # for item in tqdm(q_retrieval_answered):
+    #     if item['question'] not in processed_questions:
+    #         if item['can_answer_with_retrieval']:
+    #             processed_item = {
+    #                 'input': instruction + "\n" + item['question'],
+    #                 'label': "[SUBQ]" + " " + item['question'],
+    #                 'graphs': [],
+    #             }
+    #             processed_data.append(processed_item)
+    #             processed_questions.add(item['question'])
             
-    ## Case 2: The question needs a subquery
+    ## Case 2: The main question needs a subquery
     print("Processing Case 2: The main question needs a subquery ...")
     for item in tqdm(hotpotqa_filtered_data):
         if item['question'] not in processed_questions and question_to_subqueries[item['question']] != []:

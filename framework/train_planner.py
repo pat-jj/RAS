@@ -125,18 +125,18 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
                 })
                 
             # Add checkpoint saving logic
-            if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
-                checkpoint_step = (batch_idx + 1) // checkpoint_interval
-                model_path = os.path.join(args.output_dir, f'checkpoint_epoch_{epoch}_step_{checkpoint_step}.pt')
-                torch.save({
-                    'epoch': epoch,
-                    'step': batch_idx,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'train_loss': total_loss / (batch_idx + 1),
-                }, model_path)
-                logging.info(f'Saved intermediate checkpoint to {model_path}')
+            # if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
+            #     checkpoint_step = (batch_idx + 1) // checkpoint_interval
+            #     model_path = os.path.join(args.output_dir, f'checkpoint_epoch_{epoch}_step_{checkpoint_step}.pt')
+            #     torch.save({
+            #         'epoch': epoch,
+            #         'step': batch_idx,
+            #         'model_state_dict': model.state_dict(),
+            #         'optimizer_state_dict': optimizer.state_dict(),
+            #         'scheduler_state_dict': scheduler.state_dict(),
+            #         'train_loss': total_loss / (batch_idx + 1),
+            #     }, model_path)
+            #     logging.info(f'Saved intermediate checkpoint to {model_path}')
                 
         except RuntimeError as e:
             logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -316,15 +316,15 @@ def main():
             logger.info(f'Saved best model to {model_path}')
         
         # Save checkpoint
-        if (epoch + 1) % args.save_interval == 0:
-            model_path = os.path.join(args.output_dir, f'checkpoint_epoch_{epoch}.pt')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'val_loss': val_loss,
-            }, model_path)
+        # if (epoch + 1) % args.save_interval == 0:
+        #     model_path = os.path.join(args.output_dir, f'checkpoint_epoch_{epoch}.pt')
+        #     torch.save({
+        #         'epoch': epoch,
+        #         'model_state_dict': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'scheduler_state_dict': scheduler.state_dict(),
+        #         'val_loss': val_loss,
+        #     }, model_path)
     
     if wandb_enabled:
         wandb.finish()

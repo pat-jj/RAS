@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
 import argparse
-from models.graph_llm import GraphLLM
+from framework.models.answerer import GraphLLM
 from torch.optim import AdamW
 import wandb
 from tqdm import tqdm
