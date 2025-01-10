@@ -256,13 +256,12 @@ class GraphProcessor:
 
 
 def get_instruction():
-    return \
 # """You are a planner to determine if the question can be answered with current information.
 # You will be output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
 # You will be output [SUBQ] with the subquery if the question needs a subquery.
 # You will be output [SUFFICIENT] if the question can be answered with provided information.
 # """
-"""You are a planner to determine if the question can be answered with current information and output the appropriate label as well as the subquery if needed.
+    return """You are a planner to determine if the question can be answered with current information and output the appropriate label as well as the subquery if needed.
 Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval.
 Output [SUBQ] with an subquery for retrieval if still needs a subquery.
 Output [SUFFICIENT] if the question can be answered with the provided information.

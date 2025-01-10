@@ -206,7 +206,7 @@ def main():
     doc_path = '/shared/eng/pj20/firas_data/datasets/classifier_labeling_data/document_class_probabilities.csv'
     
     X, y = load_data(query_path, doc_path)
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
     
     train_dataset = DistributionDataset(X_train, y_train)
     val_dataset = DistributionDataset(X_val, y_val)

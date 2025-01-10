@@ -6,8 +6,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch_scatter import scatter
 from models.gnns import load_gnn_model
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-import torch.backends.cuda as cuda
-from transformers import BitsAndBytesConfig
 
 class ActionPlanner(torch.nn.Module):
     def __init__(self, args):
@@ -27,8 +25,8 @@ class ActionPlanner(torch.nn.Module):
         self.tokenizer.padding_side = 'left'
 
         # Get special tokens from tokenizer
-        self.bos_token = self.tokenizer.bos_token  # Usually '
-        self.eos_token = self.tokenizer.eos_token  # Usually '
+        self.bos_token = self.tokenizer.bos_token  
+        self.eos_token = self.tokenizer.eos_token  
         self.inst_token = '[INST]'
         self.inst_end_token = '[/INST]'
         
@@ -38,32 +36,12 @@ class ActionPlanner(torch.nn.Module):
         self.EOS = self.eos_token
         self.IGNORE_INDEX = -100
 
-        # Configure quantization and flash attention
-        quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4"
-        )
-
-        # Update kwargs with optimization configs
-        kwargs.update({
-            "quantization_config": quantization_config,
-            "torch_dtype": torch.bfloat16,
-            "use_flash_attention_2": True,  # Enable Flash Attention 2
-            "attn_implementation": "flash_attention_2",
-        })
-
-        # Load base model with optimizations
+        # Load base model
         model = AutoModelForCausalLM.from_pretrained(
             args.llm_model_path,
             low_cpu_mem_usage=True,
             **kwargs
         )
-
-        # Enable memory efficient attention if flash attention is not available
-        if not cuda.get_device_capability()[0] >= 8:  # For GPUs older than Ampere
-            model.config.use_memory_efficient_attention = True
 
         if args.llm_frozen == 'True':
             print("Freezing LLAMA!")
@@ -140,9 +118,6 @@ class ActionPlanner(torch.nn.Module):
         return g_embeds.unsqueeze(0)  # [1, 1, hidden_dim]
 
     def forward(self, samples):
-        # Enable gradient checkpointing for training
-        self.model.gradient_checkpointing_enable()
-        
         batch_size = len(samples['input'])
         
         # Process input text and labels directly from samples
@@ -213,67 +188,69 @@ class ActionPlanner(torch.nn.Module):
         """
         Generate planning decisions during inference
         """
-        with torch.inference_mode():  # More memory efficient than no_grad
+        # Process input text
+        inputs = self.tokenizer(samples['input'], add_special_tokens=False)
+        
+        # Get special token embeddings
+        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
+        bos_embeds = self.word_embedding(
+            self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
+        ).unsqueeze(0)
+        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
+
+        batch_size = len(samples['input'])
+        batch_inputs_embeds = []
+        batch_attention_mask = []
+        
+        for i in range(batch_size):
+            # Encode graphs
+            graph_embeds = self.encode_graphs(samples['graphs'][i])
+            graph_embeds = self.projector(graph_embeds.squeeze(1)).unsqueeze(1)
+            
             # Process input text
-            inputs = self.tokenizer(samples['input'], add_special_tokens=False)
+            input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
+            inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
+            inputs_embeds = torch.cat([bos_embeds, graph_embeds, inputs_embeds], dim=0)
             
-            # Get special token embeddings
-            eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
-            bos_embeds = self.word_embedding(
-                self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
-            ).unsqueeze(0)
-            pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
+            batch_inputs_embeds.append(inputs_embeds)
+            batch_attention_mask.append([1] * inputs_embeds.shape[0])
 
-            batch_size = len(samples['input'])
-            batch_inputs_embeds = []
-            batch_attention_mask = []
-            
-            for i in range(batch_size):
-                # Encode graphs
-                graph_embeds = self.encode_graphs(samples['graphs'][i])
-                graph_embeds = self.projector(graph_embeds.squeeze(1)).unsqueeze(1)
-                
-                # Process input text
-                input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
-                inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
-                inputs_embeds = torch.cat([bos_embeds, graph_embeds, inputs_embeds], dim=0)
-                
-                batch_inputs_embeds.append(inputs_embeds)
-                batch_attention_mask.append([1] * inputs_embeds.shape[0])
+        # Pad sequences
+        max_length = max([x.shape[0] for x in batch_inputs_embeds])
+        for i in range(batch_size):
+            pad_length = max_length - batch_inputs_embeds[i].shape[0]
+            if pad_length > 0:
+                batch_inputs_embeds[i] = torch.cat([pad_embeds.repeat(pad_length, 1), batch_inputs_embeds[i]])
+                batch_attention_mask[i] = [0] * pad_length + batch_attention_mask[i]
 
-            # Pad sequences
-            max_length = max([x.shape[0] for x in batch_inputs_embeds])
-            for i in range(batch_size):
-                pad_length = max_length - batch_inputs_embeds[i].shape[0]
-                if pad_length > 0:
-                    batch_inputs_embeds[i] = torch.cat([pad_embeds.repeat(pad_length, 1), batch_inputs_embeds[i]])
-                    batch_attention_mask[i] = [0] * pad_length + batch_attention_mask[i]
+        # Stack batch tensors
+        inputs_embeds = torch.stack(batch_inputs_embeds, dim=0).to(self.model.device)
+        attention_mask = torch.tensor(batch_attention_mask).to(self.model.device)
 
-            # Stack batch tensors
-            inputs_embeds = torch.stack(batch_inputs_embeds, dim=0).to(self.model.device)
-            attention_mask = torch.tensor(batch_attention_mask).to(self.model.device)
+        # Generate with autocast
+        with self.maybe_autocast():
+            outputs = self.model.generate(
+                inputs_embeds=inputs_embeds,
+                max_new_tokens=self.max_new_tokens,
+                attention_mask=attention_mask,
+                use_cache=True
+            )
+        
+        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
-            # Generate with autocast
-            with self.maybe_autocast():
-                outputs = self.model.generate(
-                    inputs_embeds=inputs_embeds,
-                    max_new_tokens=self.max_new_tokens,
-                    attention_mask=attention_mask,
-                    use_cache=True
-                )
-            
-            predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-
-            return {
-                'input': samples['input'],
-                'pred': predictions,
-                'label': samples['label'],
-            }
+        return {
+            'input': samples['input'],
+            'pred': predictions,
+            'label': samples['label'],
+        }
 
     def maybe_autocast(self, dtype=torch.bfloat16):
         """Helper for handling autocast"""
-        # Always use autocast with bfloat16 for better memory efficiency
-        return torch.cuda.amp.autocast(dtype=dtype, cache_enabled=True)
+        enable_autocast = self.device != torch.device("cpu")
+        if enable_autocast:
+            return torch.cuda.amp.autocast(dtype=dtype)
+        else:
+            return contextlib.nullcontext()
 
     def print_trainable_params(self):
         """Print trainable parameter stats"""

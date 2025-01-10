@@ -15,12 +15,22 @@ def analyze_token_lengths():
     input_lengths = []
     
     # Process each example
+    text_with_max_length = ''
+    max_length = 0
+    sample_text = []
     print("Analyzing token lengths...")
     for item in tqdm(train_data):
         # Tokenize input text
-        input_tokens = tokenizer(item['input'], add_special_tokens=False)
+        # input_tokens = tokenizer(item['input'], add_special_tokens=False)
+        input_tokens = tokenizer(item['label'], add_special_tokens=False)
         input_lengths.append(len(input_tokens.input_ids))
-    
+        if len(input_tokens.input_ids) > max_length:
+            max_length = len(input_tokens.input_ids)
+            # text_with_max_length = item['input']
+            text_with_max_length = item['label']
+        if len(sample_text) < 20:
+            # sample_text.append(item['input'])
+            sample_text.append(item['label'])
     # Calculate statistics
     input_lengths = np.array(input_lengths)
     stats = {
@@ -50,6 +60,9 @@ def analyze_token_lengths():
         count = np.sum((input_lengths >= bins[i]) & (input_lengths < bins[i+1]))
         percent = (count / len(input_lengths)) * 100
         print(f"{bins[i]}-{bins[i+1]}: {count} examples ({percent:.2f}%)")
-
+        
+    print(f"Text with max length: {text_with_max_length}")
+    print(f"Sample text: {sample_text}")
+    
 if __name__ == "__main__":
     analyze_token_lengths()
