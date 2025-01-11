@@ -3,15 +3,39 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
 import argparse
-from framework.models.answerer import GraphLLM
+from models.action_planner import ActionPlanner
 from torch.optim import AdamW
 import wandb
 from tqdm import tqdm
 import datetime
 import math
 from torch.optim.lr_scheduler import LambdaLR
+from huggingface_hub import HfApi
+from huggingface_hub import login
 
-class HotpotQADataset(Dataset):
+def upload_to_hub(model_path, repo_id, token):
+    """Upload model checkpoint to Hugging Face Hub"""
+    # Login to Hugging Face
+    login(token=token)
+    api = HfApi()
+    
+    # Create or get repository
+    try:
+        api.create_repo(repo_id=repo_id, private=True)
+    except Exception as e:
+        logging.info(f"Repository already exists or error occurred: {e}")
+    
+    # Upload the model file
+    api.upload_file(
+        path_or_fileobj=model_path,
+        path_in_repo="model.pt",
+        repo_id=repo_id,
+        commit_message="Upload trained model"
+    )
+    logging.info(f"Model uploaded to {repo_id}")
+    
+
+class PlannerDataset(Dataset):
     def __init__(self, data_path):
         self.data = torch.load(data_path)
         
@@ -19,17 +43,17 @@ class HotpotQADataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
-        return self.data[idx]
+        return {
+            'input': self.data[idx]['input'],
+            'label': self.data[idx]['label'],
+            'graphs': self.data[idx]['graphs']
+        }
 
 def setup_logging(args):
-    # Create logs directory
-    os.makedirs('llm_tune/logs', exist_ok=True)
-    
-    # Create log filename with timestamp
+    os.makedirs('planner/logs', exist_ok=True)
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = os.path.join('llm_tune/logs', f'training_{timestamp}.log')
+    log_file = os.path.join('planner/logs', f'training_{timestamp}.log')
     
-    # Setup logging configuration
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -47,17 +71,13 @@ def setup_wandb(args):
     os.environ['WANDB_RUN_ID'] = run_id
 
     wandb.init(
-        project="graphllm-hotpotqa",
+        project="action-planner-hotpotqa",
         config=args,
         settings=wandb.Settings(start_method="thread")
     )
     return True
 
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5):
-    """Create a schedule with a learning rate that decreases following the values of the cosine function between the
-    initial lr set in the optimizer and 0, after a warmup period during which it increases linearly between 0 and the
-    initial lr set in the optimizer."""
-    
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
             return float(current_step) / float(max(1, num_warmup_steps))
@@ -72,77 +92,217 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
     optimizer.zero_grad()
     
     progress_bar = tqdm(train_loader, desc=f'Training Epoch {epoch}')
-    running_loss = []  # For loss smoothing
+    running_loss = []
     
-    for batch_idx, batch in enumerate(progress_bar):
-        # Forward pass
-        loss = model(batch)
-        loss = loss / args.grad_accum_steps
-        
-        # Backward pass
-        loss.backward()
-        
-        # Track gradient norms
-        grad_norm = 0.0
-        for param in model.parameters():
-            if param.grad is not None:
-                grad_norm += param.grad.data.norm(2).item() ** 2
-        grad_norm = grad_norm ** 0.5
-        
-        # Gradient accumulation and optimization step
-        if (batch_idx + 1) % args.grad_accum_steps == 0:
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            
-            optimizer.step()
-            optimizer.zero_grad()
-            scheduler.step()
-        
-        # Loss tracking and logging
-        total_loss += loss.item() * args.grad_accum_steps
-        running_loss.append(loss.item() * args.grad_accum_steps)
-        if len(running_loss) > 100:  # Keep last 100 losses for smoothing
-            running_loss.pop(0)
-        smoothed_loss = sum(running_loss) / len(running_loss)
-        
-        # Update progress bar
-        progress_bar.set_postfix({
-            'loss': smoothed_loss,
-            'lr': scheduler.get_last_lr()[0],
-            'grad_norm': grad_norm
-        })
-        
-        # Log to wandb
-        if batch_idx % args.log_interval == 0:
-            wandb.log({
-                'train_loss': loss.item() * args.grad_accum_steps,
-                'smoothed_loss': smoothed_loss,
-                'learning_rate': scheduler.get_last_lr()[0],
-                'gradient_norm': grad_norm,
-                'epoch': epoch,
-                'step': batch_idx + epoch * len(train_loader)
-            })
+    # Add checkpoint tracking
+    total_steps = len(train_loader)
+    checkpoint_interval = total_steps // 4  # Save 4 times per epoch
     
+    try:
+        for batch_idx, batch in enumerate(progress_bar):
+            try:
+                # Forward pass
+                loss = model(batch)
+                loss = loss / args.grad_accum_steps
+                
+                # Backward pass
+                loss.backward()
+                
+                # Track gradient norms
+                grad_norm = 0.0
+                for param in model.parameters():
+                    if param.grad is not None:
+                        grad_norm += param.grad.data.norm(2).item() ** 2
+                grad_norm = grad_norm ** 0.5
+                
+                # Gradient accumulation and optimization step
+                if (batch_idx + 1) % args.grad_accum_steps == 0:
+                    if args.grad_clip > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                    
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    scheduler.step()
+                
+                # Loss tracking and logging
+                total_loss += loss.item() * args.grad_accum_steps
+                running_loss.append(loss.item() * args.grad_accum_steps)
+                if len(running_loss) > 100:
+                    running_loss.pop(0)
+                smoothed_loss = sum(running_loss) / len(running_loss)
+                
+                # Update progress bar
+                progress_bar.set_postfix({
+                    'loss': smoothed_loss,
+                    'lr': scheduler.get_last_lr()[0],
+                    'grad_norm': grad_norm
+                })
+                
+                # Log to wandb
+                if batch_idx % args.log_interval == 0:
+                    wandb.log({
+                        'train_loss': loss.item() * args.grad_accum_steps,
+                        'smoothed_loss': smoothed_loss,
+                        'learning_rate': scheduler.get_last_lr()[0],
+                        'gradient_norm': grad_norm,
+                        'epoch': epoch,
+                        'step': batch_idx + epoch * len(train_loader)
+                    })
+                    
+                # Add checkpoint saving logic
+                if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
+                    model_path = os.path.join(args.output_dir, f'latest_checkpoint.pt')
+                    torch.save({
+                        'epoch': epoch,
+                        'step': batch_idx,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'train_loss': total_loss / (batch_idx + 1),
+                    }, model_path)
+                    logging.info(f'Saved intermediate checkpoint to {model_path}')
+                    
+            except Exception as e:
+                logging.error(f"Error in batch {batch_idx}: {str(e)}")
+                # Save emergency checkpoint on batch error
+                emergency_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
+                torch.save({
+                    'epoch': epoch,
+                    'step': batch_idx,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'train_loss': total_loss / max(1, batch_idx),
+                }, emergency_path)
+                logging.info(f'Saved emergency checkpoint due to error: {emergency_path}')
+                continue
+                
+    except Exception as e:
+        logging.error(f"Critical error in epoch {epoch}: {str(e)}")
+        # Save emergency checkpoint on epoch error
+        emergency_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'train_loss': total_loss / max(1, batch_idx),
+        }, emergency_path)
+        logging.info(f'Saved emergency checkpoint due to critical error: {emergency_path}')
+        
     return total_loss / len(train_loader)
+
+def test_model_saving(model, optimizer, scheduler, args):
+    """Test if model saving works properly"""
+    try:
+        test_path = os.path.join(args.output_dir, 'test_save.pt')
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+        }, test_path)
+        # Try loading it back
+        torch.load(test_path)
+        os.remove(test_path)
+        logging.info("Model saving/loading test passed")
+        return True
+    except Exception as e:
+        logging.error(f"Model saving test failed: {str(e)}")
+        return False
 
 def evaluate(model, val_loader):
     model.eval()
     total_loss = 0
+    valid_batches = 0
+    all_predictions = []
+    all_labels = []
     
+    device = model.device
     with torch.no_grad():
-        for batch in tqdm(val_loader, desc='Evaluating'):
-            loss = model(batch)
-            total_loss += loss.item()
+        for batch_idx, batch in enumerate(tqdm(val_loader, desc='Evaluating')):
+            try:
+                # Move batch to device
+                if 'input' in batch:
+                    batch['input'] = [x.to(device) if torch.is_tensor(x) else x for x in batch['input']]
+                if 'label' in batch:
+                    batch['label'] = [x.to(device) if torch.is_tensor(x) else x for x in batch['label']]
+                if 'graphs' in batch:
+                    batch['graphs'] = [[g.to(device) for g in graphs] for graphs in batch['graphs']]                
+                
+                # Print first graph info if exists
+                # if batch['graphs'] and len(batch['graphs']) > 0:
+                #     first_graph_list = batch['graphs'][0]
+                #     # logging.info(f"First item graphs count: {len(first_graph_list)}")
+                #     if first_graph_list:
+                #         g = first_graph_list[0]
+                #         # logging.info(f"First graph shape - x: {g.x.shape}, edge_index: {g.edge_index.shape}")
+
+                # Skip incomplete batches
+                if len(batch['input']) != val_loader.batch_size:
+                    logging.info(f"Skipping incomplete batch of size {len(batch['input'])}")
+                    continue
+                    
+                # Get loss and predictions
+                outputs = model.inference(batch)
+                loss = model(batch)
+                
+                # Track metrics
+                total_loss += loss.item()
+                valid_batches += 1
+                all_predictions.extend(outputs['pred'])
+                all_labels.extend(batch['label'])
+                
+            except Exception as e:
+                logging.error(f"Error in validation batch {batch_idx}: {str(e)}")
+                # Print more detailed error information
+                import traceback
+                logging.error(traceback.format_exc())
+                continue
     
-    return total_loss / len(val_loader)
+    if valid_batches == 0:
+        logging.warning("No valid batches during evaluation!")
+        return {
+            'val_loss': float('inf'),
+            'predictions': [],
+            'labels': []
+        }
+        
+    metrics = {
+        'val_loss': total_loss / valid_batches,
+        'predictions': all_predictions,
+        'labels': all_labels,
+    }
+    
+    return metrics
+    
+def verify_huggingface_access(repo_id, token):
+    """Verify HuggingFace credentials and repository access"""
+    try:
+        # Try logging in
+        login(token=token)
+        api = HfApi()
+        
+        # Check if repo exists or can be created
+        try:
+            api.repo_info(repo_id=repo_id)
+            logging.info(f"Repository {repo_id} exists and is accessible")
+        except Exception:
+            # Try to create the repo if it doesn't exist
+            api.create_repo(repo_id=repo_id, private=True)
+            logging.info(f"Created new repository {repo_id}")
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"HuggingFace verification failed: {str(e)}")
+        return False
 
 def main():
     parser = argparse.ArgumentParser()
     # Model arguments
-    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Llama-2-7b-hf')
+    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Llama-2-7b-hf', choices=['meta-llama/Meta-Llama-3-8B', 'meta-llama/Llama-2-7b-hf'])
     parser.add_argument('--llm_frozen', type=str, default='False')
-    parser.add_argument('--finetune_method', type=str, default='lora', choices=['full', 'lora'],
-                      help='Finetuning method: full for full-parameter, lora for LoRA')
+    parser.add_argument('--finetune_method', type=str, default='lora', choices=['full', 'lora'])
     parser.add_argument('--gnn_model_name', type=str, default='gt')
     parser.add_argument('--gnn_in_dim', type=int, default=1024)
     parser.add_argument('--gnn_hidden_dim', type=int, default=1024)
@@ -151,60 +311,89 @@ def main():
     parser.add_argument('--gnn_num_heads', type=int, default=8)
     
     # Training arguments
-    parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/inference_model/hotpotqa_train')
-    parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/inference_model/hotpotqa_train/checkpoints')
-    parser.add_argument('--max_txt_len', type=int, default=1536)
-    parser.add_argument('--max_new_tokens', type=int, default=128)
+    parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train')
+    parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train/checkpoints')
+    parser.add_argument('--max_txt_len', type=int, default=1500)
+    parser.add_argument('--max_new_tokens', type=int, default=128)  # Shorter for planning decisions
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--epochs', type=int, default=3)
-    parser.add_argument('--lr', type=float, default=1e-5)  # Lower base learning rate
-    parser.add_argument('--warmup_ratio', type=float, default=0.15)  # Longer warmup
-    parser.add_argument('--grad_accum_steps', type=int, default=4)  # More accumulation steps
-    parser.add_argument('--grad_clip', type=float, default=0.5)  # Lower clip threshold
-    parser.add_argument('--weight_decay', type=float, default=0.01)  # Add weight decay
+    parser.add_argument('--lr', type=float, default=1e-5)
+    parser.add_argument('--warmup_ratio', type=float, default=0.15)
+    parser.add_argument('--grad_accum_steps', type=int, default=4)
+    parser.add_argument('--grad_clip', type=float, default=0.5)
+    parser.add_argument('--weight_decay', type=float, default=0.01)
     parser.add_argument('--log_interval', type=int, default=10)
     parser.add_argument('--save_interval', type=int, default=5)
     
-    # Add LoRA specific arguments
+    # LoRA arguments
     parser.add_argument('--lora_r', type=int, default=8)
     parser.add_argument('--lora_alpha', type=int, default=16)
     parser.add_argument('--lora_dropout', type=float, default=0.05)
     
+    parser.add_argument('--hf_repo_id', type=str, help='Hugging Face repository ID (username/repo-name)')
+    parser.add_argument('--hf_token', type=str, help='Hugging Face API token')
+    
+    # Add debug mode argument
+    parser.add_argument('--debug', action='store_true', help='Run in debug mode with validation data only')
+    
     args = parser.parse_args()
     
-    # Adjust batch size based on finetuning method
     if args.finetune_method == 'full':
-        # Reduce batch size and accumulate gradients for full finetuning
-        args.batch_size = max(1, args.batch_size // 4)  # Reduce batch size
-        
-    # Setup logging
+        args.batch_size = max(1, args.batch_size // 4)
+    
+    # Setup
     logger = setup_logging(args)
     
-    # Initialize wandb
-    wandb_enabled = setup_wandb(args)
+    # Verify HuggingFace access if credentials provided
+    if args.hf_repo_id and args.hf_token:
+        logger.info("Verifying HuggingFace credentials...")
+        if not verify_huggingface_access(args.hf_repo_id, args.hf_token):
+            logger.error("Failed to verify HuggingFace access. Please check your credentials and repository access.")
+            return
     
-    # Create output directory
+    wandb_enabled = setup_wandb(args)
     os.makedirs(args.output_dir, exist_ok=True)
-    logger.info("Loading datasets...")
     
     # Load datasets
-    train_dataset = HotpotQADataset(os.path.join(args.data_dir, 'train.pt'))
-    val_dataset = HotpotQADataset(os.path.join(args.data_dir, 'val.pt'))
+    logger.info("Loading datasets...")
+    if args.debug:
+        logger.info("Debug mode: Loading validation data only...")
+        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pt'))
+        train_dataset = val_dataset  # Use validation data for training in debug mode
+        args.epochs = 1  # Reduce epochs for debugging
+        args.batch_size = min(4, args.batch_size)  # Smaller batch size for debugging
+    else:
+        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'train.pt'))
+        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pt'))
     
+    val_dataset_small = torch.utils.data.Subset(val_dataset, range(40))
+    
+    # Initialize model
     logger.info("Initializing model...")
-    model = GraphLLM(args)
+    model = ActionPlanner(args)
     
     # Setup data loaders
     train_loader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size,
         shuffle=True,
+        drop_last=True, 
         collate_fn=lambda x: {
-            'id': [item['id'] for item in x],
-            'question': [item['question'] for item in x],
-            'graphs': [item['graphs'] for item in x],
-            'desc': [item['desc'] for item in x],
-            'label': [item['label'] for item in x]
+            'input': [item['input'] for item in x],
+            'label': [item['label'] for item in x],
+            'graphs': [item['graphs'] for item in x]
+        }
+    )
+    
+    val_loader_small = DataLoader(
+        val_dataset_small,
+        batch_size=args.batch_size,
+        shuffle=False,
+        drop_last=True,
+        collate_fn=lambda x: {
+            'input': [item['input'] for item in x],
+            'label': [item['label'] for item in x],
+            'graphs': [item['graphs'] for item in x]
         }
     )
     
@@ -212,25 +401,20 @@ def main():
         val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
+        drop_last=True, 
         collate_fn=lambda x: {
-            'id': [item['id'] for item in x],
-            'question': [item['question'] for item in x],
-            'graphs': [item['graphs'] for item in x],
-            'desc': [item['desc'] for item in x],
-            'label': [item['label'] for item in x]
+            'input': [item['input'] for item in x],
+            'label': [item['label'] for item in x],
+            'graphs': [item['graphs'] for item in x]
         }
     )
     
-    # Use mixed precision training
-    scaler = torch.cuda.amp.GradScaler(enabled=True)
-    
-    # Setup optimizer and scheduler
+    # Training setup
     optimizer = AdamW(model.parameters(), 
                      lr=args.lr,
                      weight_decay=args.weight_decay,
-                     betas=(0.9, 0.95))  # Modified betas
+                     betas=(0.9, 0.95))
     
-    # Use cosine schedule instead of linear
     total_steps = len(train_loader) * args.epochs
     warmup_steps = int(total_steps * args.warmup_ratio)
     scheduler = get_cosine_schedule_with_warmup(
@@ -239,47 +423,84 @@ def main():
         num_training_steps=total_steps
     )
     
+    # Test model saving functionality
+    logger.info("Testing model saving functionality...")
+    if not test_model_saving(model, optimizer, scheduler, args):
+        logger.error("Model saving test failed. Aborting training.")
+        return
+    
+    # Test validation before starting training
+    logger.info("Testing validation loop...")
+    try:
+        logger.info("Running test validation pass...")
+        test_val_metrics = evaluate(model, val_loader_small)
+        if test_val_metrics['val_loss'] == float('inf'):
+            logger.error("Validation test failed - no valid batches completed")
+            return
+        logger.info("Validation test completed successfully")
+    except Exception as e:
+        logger.error(f"Validation test failed with error: {str(e)}")
+        return
+        
+    # Verify HuggingFace access if credentials provided
+    hf_upload_ok = False
+    if args.hf_repo_id and args.hf_token:
+        logger.info("Verifying HuggingFace credentials...")
+        hf_upload_ok = verify_huggingface_access(args.hf_repo_id, args.hf_token)
+        if not hf_upload_ok:
+            logger.error("Failed to verify HuggingFace access. Training will continue but models won't be uploaded.")
+    
     # Training loop
     logger.info("Starting training...")
     best_val_loss = float('inf')
     
     for epoch in range(args.epochs):
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, epoch, args)
-        val_loss = evaluate(model, val_loader)
+        if args.debug:
+            train_loss = train_epoch(model, val_loader_small, optimizer, scheduler, epoch, args)
+        else:
+            train_loss = train_epoch(model, train_loader, optimizer, scheduler, epoch, args)
         
-        logger.info(f'Epoch {epoch} - Train Loss: {train_loss:.4f}')
-        logger.info(f'Epoch {epoch} - Validation Loss: {val_loss:.4f}')
-        
-        if wandb_enabled:
-            wandb.log({
-                'epoch': epoch,
-                'train_loss_epoch': train_loss,
-                'val_loss_epoch': val_loss
+        try:
+            if args.debug:
+                val_metrics = evaluate(model, val_loader_small)
+            else:
+                val_metrics = evaluate(model, val_loader)
+            val_loss = val_metrics['val_loss']
+            
+            if wandb_enabled:
+                wandb.log({
+                    'val_loss': val_loss,
+                    'epoch': epoch,
+                    'train_loss': train_loss
             })
+            
+            # Save best model if validation improves
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                model_path = os.path.join(args.output_dir, 'best_model.pt')
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_val_loss': best_val_loss,
+                    'train_loss': train_loss,
+                }, model_path)
+                logger.info(f'Saved new best model with validation loss: {val_loss:.4f}')
         
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            model_path = os.path.join(args.output_dir, f'best_model.pt')
+        except Exception as e:
+            logging.error(f"Error during validation in epoch {epoch}: {str(e)}")
+            # Save checkpoint if validation fails
+            model_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'best_val_loss': best_val_loss,
+                'train_loss': train_loss,
             }, model_path)
-            logger.info(f'Saved best model to {model_path}')
-        
-        # Save checkpoint
-        if (epoch + 1) % args.save_interval == 0:
-            model_path = os.path.join(args.output_dir, f'checkpoint_epoch_{epoch}.pt')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'val_loss': val_loss,
-            }, model_path)
+            logging.info(f'Saved checkpoint due to validation error')
+            continue
     
     if wandb_enabled:
         wandb.finish()

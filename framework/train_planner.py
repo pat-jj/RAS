@@ -311,8 +311,8 @@ def main():
     parser.add_argument('--gnn_num_heads', type=int, default=8)
     
     # Training arguments
-    parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/action_planner/hotpot_train_1')
-    parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/action_planner/hotpot_train_1/checkpoints')
+    parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/action_planner/all_train')
+    parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/action_planner/all_train/checkpoints')
     parser.add_argument('--max_txt_len', type=int, default=1500)
     parser.add_argument('--max_new_tokens', type=int, default=128)  # Shorter for planning decisions
     parser.add_argument('--batch_size', type=int, default=16)
