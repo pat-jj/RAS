@@ -20,6 +20,12 @@ import json
 import torch
 from torch_geometric.data import Data
 from sentence_transformers import SentenceTransformer
+from claude_api import get_claude_response
+from threading import Lock
+import queue
+import logging
+from concurrent.futures import ThreadPoolExecutor
+
 
 
 def get_planner_instruction(model_name):
@@ -180,3 +186,45 @@ class GraphProcessor:
         )
         
         return graph
+    
+    
+def generate_triples_claude(text: str) -> str:
+    """
+    Generates relationship triples from input text.
+    
+    Args:
+        text (str): Input text to extract relationships from
+        
+    Returns:
+        str: Comma-separated triples in format (S> subject| P> predicate| O> object)
+    """
+    prompt = f"""Extract relationship triples from the given text. Each triple should have exactly one subject (S>), one predicate (P>), and one object (O>).
+
+Rules:
+1. Extract as many meaningful triples as possible
+2. Each triple must be in format: (S> subject| P> predicate| O> object)
+3. Multiple triples should be separated by commas
+4. Avoid using pronouns (it/he/she) - always use the actual names
+5. Keep all entities in their original case (uppercase/lowercase)
+6. Make predicates clear and specific
+
+Example Input:
+"William Gerald Standridge (November 27, 1953 – April 12, 2014) was an American stock car racing driver. He was a competitor in the NASCAR Winston Cup Series and Busch Series."
+
+Example Output:
+(S> William gerald standridge| P> Nationality| O> American),
+(S> William gerald standridge| P> Occupation| O> Stock car racing driver),
+(S> William gerald standridge| P> Competitor| O> Busch series),
+(S> William gerald standridge| P> Competitor| O> Nascar winston cup series),
+(S> William gerald standridge| P> Birth date| O> November 27, 1953),
+(S> William gerald standridge| P> Death date| O> April 12, 2014)
+
+Input Text: {text}
+
+Output only the triples, nothing else."""
+
+    # Here you would add your actual implementation to get response from Claude API
+    # For example:
+    response = get_claude_response(prompt)
+    return response.strip()
+    

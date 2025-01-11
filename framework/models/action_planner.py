@@ -6,11 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch_scatter import scatter
 from models.gnns import load_gnn_model
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-
-BOS = '<s>[INST]'
-EOS_USER = '[/INST]'
-EOS = '</s>'
-IGNORE_INDEX = -100
+import logging
 
 class ActionPlanner(torch.nn.Module):
     def __init__(self, args):
@@ -28,6 +24,22 @@ class ActionPlanner(torch.nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, use_fast=False, revision=kwargs["revision"])
         self.tokenizer.pad_token_id = 0
         self.tokenizer.padding_side = 'left'
+
+        # Set pad token to eos token if not set
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Get special tokens from tokenizer
+        self.bos_token = self.tokenizer.bos_token  
+        self.eos_token = self.tokenizer.eos_token  
+        self.inst_token = '[INST]'
+        self.inst_end_token = '[/INST]'
+        
+        # Construct chat format tokens
+        self.BOS = f'{self.bos_token}{self.inst_token}'
+        self.EOS_USER = self.inst_end_token
+        self.EOS = self.eos_token
+        self.IGNORE_INDEX = -100
 
         # Load base model
         model = AutoModelForCausalLM.from_pretrained(
@@ -118,10 +130,10 @@ class ActionPlanner(torch.nn.Module):
         labels = self.tokenizer(samples['label'], add_special_tokens=False)
         
         # Get special token embeddings
-        eos_tokens = self.tokenizer(EOS, add_special_tokens=False)
-        eos_user_tokens = self.tokenizer(EOS_USER, add_special_tokens=False)
+        eos_tokens = self.tokenizer(self.EOS, add_special_tokens=False)
+        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
-            self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
+            self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
         ).unsqueeze(0)
         pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
 
@@ -149,7 +161,7 @@ class ActionPlanner(torch.nn.Module):
             batch_attention_mask.append([1] * inputs_embeds.size(1))
             
             # Prepare labels with ignore indices
-            full_label_ids = [IGNORE_INDEX] * (inputs_embeds.size(1)-len(label_input_ids)) + label_input_ids
+            full_label_ids = [self.IGNORE_INDEX] * (inputs_embeds.size(1)-len(label_input_ids)) + label_input_ids
             batch_label_input_ids.append(full_label_ids)
 
         # Pad sequences to max length
@@ -159,7 +171,7 @@ class ActionPlanner(torch.nn.Module):
             if pad_length > 0:
                 batch_inputs_embeds[i] = torch.cat([pad_embeds.repeat(pad_length, 1), batch_inputs_embeds[i]])
                 batch_attention_mask[i] = [0] * pad_length + batch_attention_mask[i]
-                batch_label_input_ids[i] = [IGNORE_INDEX] * pad_length + batch_label_input_ids[i]
+                batch_label_input_ids[i] = [self.IGNORE_INDEX] * pad_length + batch_label_input_ids[i]
 
         # Stack batch tensors
         inputs_embeds = torch.stack(batch_inputs_embeds, dim=0).to(self.model.device)
@@ -185,10 +197,10 @@ class ActionPlanner(torch.nn.Module):
         inputs = self.tokenizer(samples['input'], add_special_tokens=False)
         
         # Get special token embeddings
-        eos_user_tokens = self.tokenizer(EOS_USER, add_special_tokens=False)
+        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
-            self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
-        ).unsqueeze(0)
+            self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
+        ).unsqueeze(0).to(self.model.device)
         pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
 
         batch_size = len(samples['input'])
@@ -196,40 +208,57 @@ class ActionPlanner(torch.nn.Module):
         batch_attention_mask = []
         
         for i in range(batch_size):
-            # Encode graphs
-            graph_embeds = self.encode_graphs(samples['graphs'][i])
-            graph_embeds = self.projector(graph_embeds.squeeze(1)).unsqueeze(1)
+            # Encode graphs - match forward() exactly
+            graph_embeds = self.encode_graphs(samples['graphs'][i])  # [1, 1, hidden_dim]
+            graph_embeds = self.projector(graph_embeds.squeeze(1)).unsqueeze(1)  # [1, 1, 4096]
             
             # Process input text
             input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
             inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
-            inputs_embeds = torch.cat([bos_embeds, graph_embeds, inputs_embeds], dim=0)
+            inputs_embeds = inputs_embeds.unsqueeze(0)  # Add batch dimension
             
-            batch_inputs_embeds.append(inputs_embeds)
-            batch_attention_mask.append([1] * inputs_embeds.shape[0])
+            # Match the concatenation pattern from forward method
+            inputs_embeds = torch.cat([bos_embeds, graph_embeds, inputs_embeds], dim=1)
+            
+            batch_inputs_embeds.append(inputs_embeds.squeeze(0))
+            batch_attention_mask.append([1] * inputs_embeds.size(1))
 
         # Pad sequences
         max_length = max([x.shape[0] for x in batch_inputs_embeds])
         for i in range(batch_size):
             pad_length = max_length - batch_inputs_embeds[i].shape[0]
             if pad_length > 0:
-                batch_inputs_embeds[i] = torch.cat([pad_embeds.repeat(pad_length, 1), batch_inputs_embeds[i]])
+                batch_inputs_embeds[i] = torch.cat([
+                    pad_embeds.repeat(pad_length, 1).to(self.model.device), 
+                    batch_inputs_embeds[i]
+                ])
                 batch_attention_mask[i] = [0] * pad_length + batch_attention_mask[i]
 
         # Stack batch tensors
         inputs_embeds = torch.stack(batch_inputs_embeds, dim=0).to(self.model.device)
         attention_mask = torch.tensor(batch_attention_mask).to(self.model.device)
+        
+        if attention_mask.shape[1] != inputs_embeds.shape[1]:
+            logging.warning(f"Attention mask shape {attention_mask.shape} doesn't match inputs shape {inputs_embeds.shape}")
+            attention_mask = attention_mask[:, :inputs_embeds.shape[1]]
 
+        self.model.config.use_cache = True
         # Generate with autocast
         with self.maybe_autocast():
             outputs = self.model.generate(
                 inputs_embeds=inputs_embeds,
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
-                use_cache=True
+                temperature=0.7,  # Add temperature
+                do_sample=True,   # Enable sampling
+                top_p=0.9,        # Add top-p sampling
+                pad_token_id=self.tokenizer.pad_token_id,  # Specify pad token
+                eos_token_id=self.tokenizer.eos_token_id   # Specify EOS token
             )
         
         predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        
+        self.model.config.use_cache = False
 
         return {
             'input': samples['input'],

@@ -159,6 +159,53 @@ def load_hotpotqa_questions_can_be_answered_with_single_retrieval(path):
         data = json.load(f)
     return data
 
+
+def load_selfrag_data(path):
+    """
+        [
+            {
+                "instruction": "Q: Given a scientific question, generate an incorrect answer to the given question. The incorrect answer should be a plausible alternative to the correct answer. The answer should be some other item belonging to the same category as the correct answer but should be incorrect.\nWhat are the strongest chemical bonds?\nA:",
+                "output": "[Retrieval]<paragraph>Chemical bond\nbond with no three-dimensional directions), compressed two-dimensional form (CH–CH–OH), by separating the functional group from another part of the molecule (CHOH), or by its atomic constituents (CHO), according to what is discussed. Sometimes, even the non-bonding valence shell electrons (with the two-dimensional approximate directions) are marked, e.g. for elemental carbon C. Some chemists may also mark the respective orbitals, e.g. the hypothetical ethene anion (C=C ) indicating the possibility of bond formation. Strong chemical bonds are the \"intramolecular\" forces which hold atoms together in molecules. A strong chemical bond is formed from the transfer or sharing of electrons between atomic</paragraph>[Relevant]mutual and stock bonds[No support / Contradictory][Utility:5]",
+                "input": "",
+                "id": "flan_v2_75911",
+                "dataset_name": "flan_v2",
+                "retrieval_type": "single_query",
+                "main_query": "What are chemical bonds and what types are considered the strongest?",
+                "sub_queries": [],
+                "answer": "mutual and stock bonds[No support / Contradictory]"
+            },
+            {
+                "instruction": "[Q]: Die Türkei gehört nicht zu Europa, und sie erfüllt auch nicht die Funktion einer Brücke zu den islamischen Staaten.\n\nTranslate this to English?\n[A]: Turkey is not part of Europe nor does it perform a bridging function to the Islamic countries.\nQuestion:\nEr hat Öl, Gas, alle wichtigen Rohstoffe, Agrarprodukte, mit denen er nicht nur ganz Lateinamerika, sondern zusätzlich auch noch Europa ernähren könnte.\n\nCould you please translate this to English?\nAnswer:\nIt has oil, gas, all the important raw materials, and enough agricultural products to feed not only the whole of Latin America but Europe as well.\ntest: Die Beantwortung der Fragen erfolgt im Regelfall mündlich durch den Oberbürgermeister oder einen von ihm Beauftragten.\nEnglish?\n\ntranslation: Usually the answer will be verbally by the Lord Mayor or someone authorized.\n[ 14 ] Das Verwenden einer Passphrase als Schlüssel bedeutet derzeit, dass die Partition unter Benutzung von LUKS eingerichtet wird.\n\nIn English?\nxxxxx\n[ 14 ] Using a passphrase as the key currently means that the partition will be set up using LUKS .\nHow is \"1 - Radiohead, I do not even know.\" said in German?\n1 – I Radiohead, io non li conoscevo nemmeno.\n[Q]: Nehmen wir beispielsweise Italien.\n\nTranslate this to English?\n[A]:",
+                "output": "[No Retrieval]Take Italy, for example.[Utility:5]",
+                "input": "",
+                "id": "flan_v2_16012",
+                "dataset_name": "flan_v2",
+                "retrieval_type": "no_retrieval",
+                "answer": "Take Italy, for example.",
+                "sub_queries": []
+            },
+            {
+                "instruction": "Write something based on this summary: ronaldo meets with inter 's president\n\nSentence:\nA: with his reported desire to leave inter milan apparently thwarted , brazilian superstriker ronaldo met with club president massimo moratti wednesday , a local news agency reported .\nWrite something based on this summary: us rights group urges palestinians to stop using children for attacks\n\nSentence:\nA: a us-based rights organization urged palestinian armed groups on wednesday to stop recruiting children to carry out anti-israeli attacks .\nWrite something based on this summary: sudan 's president reshuffles his cabinet\n\nSentence:\nA: sudan 's president reshuffled his cabinet on saturday , bringing four new faces into the government , the official news agency suna reported .\nWrite something based on this summary: condoleezza rice no-show in tbilisi\n\nSentence:\nA:",
+                "output": "[Retrieval]<paragraph>Miguel Ángel Moratinos\n17 August 2007, he appointed Croatian diplomat and ex-minister Miomir Žužul, \"to be his personal representative in a mission to Georgia on (a) missile incident that took place on 6 August,\" alleged to be a Russian missile strike on Georgian territory. Relations with Latin America Following the Bolivian general election in December 2005, Moratinos summoned the Vatican's envoy to Spain after a comedian for conservative radio station Cadena COPE held a five-minute telephone conversation with the newly elected president of Bolivia, Evo Morales, while claiming to be the Spanish prime minister. In October 2006, Moratinos announced that EADS CASA, a</paragraph>[Irrelevant]the former u.s. secretary of state , condoleezza rice , had skipped a reportedly planned trip to tbilisi , and flew from batumi to dublin on monday , the same day she arrived in georgia .[Utility:5]",
+                "input": "",
+                "id": "flan_v2_18696",
+                "dataset_name": "flan_v2",
+                "retrieval_type": "multiple_queries",
+                "sub_queries": [
+                {
+                    "sub_query": "ronaldo meets inter milan president",
+                    "supporting_doc": "Miguel Ángel Moratinos\n17 August 2007, he appointed Croatian diplomat and ex-minister Miomir Žužul, \"to be his personal representative in a mission to Georgia on (a) missile incident that took place on 6 August,\" alleged to be a Russian missile strike on Georgian territory. Relations with Latin America Following the Bolivian general election in December 2005, Moratinos summoned the Vatican's envoy to Spain after a comedian for conservative radio station Cadena COPE held a five-minute telephone conversation with the newly elected president of Bolivia, Evo Morales, while claiming to be the Spanish prime minister. In October 2006, Moratinos announced that EADS CASA, a"
+                }
+                ],
+                "answer": "the former u.s. secretary of state , condoleezza rice , had skipped a reportedly planned trip to tbilisi , and flew from batumi to dublin on monday , the same day she arrived in georgia ."
+            },
+            ...
+        ]
+    """
+    with open(path, 'r') as f:
+        data = json.load(f)
+    return data
+
 def load_text_to_triples(path):
     """
     [
@@ -175,6 +222,10 @@ def load_text_to_triples(path):
     """
     with open(path, 'r') as f:
         data = json.load(f)
+    
+    if type(data) == dict:
+        if "results" in data.keys():
+            data = data['results']
         
     triples_lookup = {item['text']: [triple + ')' if not triple.endswith(')') else triple 
                                 for triple in item['generated_triple'].split('), ')] 
@@ -249,11 +300,6 @@ class GraphProcessor:
         
         return graph, triple_strs  # Return original triple strings for description
 
-    def format_document_triples(self, triples):
-        """Format triples from one document keeping original format"""
-        formatted = " ".join(f"({triple})" for triple in triples)  # Keep original triple format
-        return formatted
-
 
 def get_instruction():
 # """You are a planner to determine if the question can be answered with current information.
@@ -268,18 +314,36 @@ Output [SUFFICIENT] if the question can be answered with the provided informatio
 """
 # Output [SUBQ] with the question itself if it can be answered with retrieval by the question itself.
 
+def load_processed_data(output_dir):
+    if os.path.exists(os.path.join(output_dir, 'train.pt')):
+        train_data = torch.load(os.path.join(output_dir, 'train.pt'))
+        val_data = torch.load(os.path.join(output_dir, 'val.pt'))
+        test_data = torch.load(os.path.join(output_dir, 'test.pt'))
+        processed_data = train_data + val_data + test_data
+        return processed_data
+    else:
+        return []
+
+
 
 def main():
     # hotpotqa_main_data = load_hotpotqa_main_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/hotpot_with_subqueries.json')
+    print("Loading HotpotQA data ...")
     hotpotqa_filtered_data, question_set, question_to_docs, question_to_subqueries = load_hotpotqa_filtered_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/filtered/hotpot_filtered.json')
     q_direct_answered = load_hotpotqa_questions_can_be_directly_answered('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/subquery_classification.json')
     q_retrieval_answered = load_hotpotqa_questions_can_be_answered_with_single_retrieval('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json')
     text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json')
     
-    output_dir = '/shared/eng/pj20/firas_data/action_planner/hotpot_train_1'
+    print("Loading SelfRAG data ...")
+    selfrag_data = load_selfrag_data('/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries_refined.json')
+    selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/selfrag_triples.json')
+    # selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/checkpoints/checkpoint_20250111_014347.json')
     
-    processed_data = []
-    processed_questions = set()
+    print("Loading processed data ...")
+    output_dir = '/shared/eng/pj20/firas_data/action_planner/all_train'
+    processed_data = load_processed_data(output_dir)
+    
+    processed_questions = set([item['input'] for item in processed_data]) if len(processed_data) > 0 else set()
     
     instruction = get_instruction()
     
@@ -289,10 +353,10 @@ def main():
     ## Case 0: The question can be answered with no retrieval
     print("Processing Case 0: The question can be answered with no retrieval ...")
     for item in tqdm(q_direct_answered):
-        if not item['needs_subquery']:
+        if not item['needs_subquery'] and instruction + "\nQuestion: " + item['question'] not in processed_questions:
             output = "[NO_RETRIEVAL]"
             processed_item = {
-                'input': instruction + "\n" + item['question'],
+                'input': instruction + "\nQuestion: " + item['question'],
                 'label': output,
                 'graphs': [],
             }
@@ -316,9 +380,9 @@ def main():
     ## Case 2: The main question needs a subquery
     print("Processing Case 2: The main question needs a subquery ...")
     for item in tqdm(hotpotqa_filtered_data):
-        if item['question'] not in processed_questions and question_to_subqueries[item['question']] != []:
+        if instruction + "\nQuestion: " + item['question'] not in processed_questions and question_to_subqueries[item['question']] != []:
             processed_item = {
-                'input': instruction + "\n" + item['question'],
+                'input': instruction + "\nQuestion: " + item['question'],
                 'label': "[SUBQ]" + " " + question_to_subqueries[item['question']][0],
                 'graphs': [],
             }
@@ -326,7 +390,7 @@ def main():
             processed_questions.add(item['question'])
             
     # P([Sufficient] or [SUBQ q_(i+1)] | [KG] [SUBQ] q_0 + [Text(g_0)] … + [SUBQ] q_i + [Text(g_i)] + Q )
-    print("Processing main data ...")
+    print("Processing HotpotQA main data ...")
     skipped_questions = set()
     for item in tqdm(hotpotqa_filtered_data):
         question = item['question']
@@ -349,24 +413,73 @@ def main():
                     input_ += "[SUBQ] " + subqueries[j] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[j]]) + "\n"
                 input_ += "[SUBQ] " + subqueries[i] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[i]]) + "\n" + "Question: " + question
                 
-                graphs = []
-                for j in range(i):
-                    graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[j]])
+                if instruction + "\n" + input_ not in processed_questions:
+                    graphs = []
+                    for j in range(i):
+                        graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[j]])
+                        graphs.append(graph)
+                    graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[i]])
                     graphs.append(graph)
-                graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[i]])
-                graphs.append(graph)
-            
-                processed_item = {
-                    'input': instruction + "\n" + input_,
-                    'label': "[SUFFICIENT]" if i == len(docs) - 1 else "[SUBQ]" + " " + subqueries[i+1],
-                    'graphs': graphs,
-                }
-                processed_data.append(processed_item)
+                
+                    processed_item = {
+                        'input': instruction + "\n" + input_,
+                        'label': "[SUFFICIENT]" if i == len(docs) - 1 else "[SUBQ]" + " " + subqueries[i+1],
+                        'graphs': graphs,
+                    }
+                    processed_data.append(processed_item)
                 
         except Exception as e:
             skipped_questions.add(question)
             print(f"Error processing item {item['question']}: {e}")
             continue
+        
+    # Process SelfRAG data
+    print("Processing SelfRAG data ...")
+    for item in tqdm(selfrag_data):
+        if item['retrieval_type'] == 'no_retrieval' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
+            processed_item = {
+                'input': instruction + "\nQuestion: " + item['instruction'],
+                'label': "[NO_RETRIEVAL]",
+                'graphs': [],
+            }
+            processed_data.append(processed_item)
+            
+        elif item['retrieval_type'] == 'single_query' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
+            processed_item = {
+                'input': instruction + "\nQuestion: " + item['instruction'],
+                'label': "[SUBQ]" + " " + item['main_query'],
+                'graphs': [],
+            }
+            processed_data.append(processed_item)
+            
+        elif item['retrieval_type'] == 'multiple_queries':
+            subquery_docs = {d['sub_query'] : d['supporting_doc'] for d in item['sub_queries']}
+            
+            try:
+                for i in range(len(item['sub_queries'])):
+                    input_ = ""
+                    for j in range(i):
+                        input_ += "[SUBQ] " + item['sub_queries'][j]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]]) + "\n"
+                    input_ += "[SUBQ] " + item['sub_queries'][i]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]]) + "\n" + "Question: " + item['instruction']
+
+                    if instruction + "\n" + input_ not in processed_questions:
+                        graphs = []
+                        for j in range(i):
+                            graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]])
+                            graphs.append(graph)
+                        graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]])
+                        graphs.append(graph)
+                        
+                        processed_item = {
+                            'input': instruction + "\n" + input_,
+                            'label': "[SUFFICIENT]" if i == len(item['sub_queries']) - 1 else "[SUBQ]" + " " + item['sub_queries'][i+1]['sub_query'],
+                            'graphs': graphs,
+                        }
+                        processed_data.append(processed_item)
+            except Exception as e:
+                print(f"Error processing item {item['instruction']}: {e}")
+                continue
+    
             
     print("Processed data length: ", len(processed_data))
     print("Skipped questions: ", len(skipped_questions))
@@ -376,9 +489,9 @@ def main():
     
     # Randomly split into train, val, test
     random.shuffle(processed_data)
-    train_data = processed_data[:int(len(processed_data)*0.9)]
-    val_data = processed_data[int(len(processed_data)*0.9):int(len(processed_data)*0.95)]
-    test_data = processed_data[int(len(processed_data)*0.95):]
+    train_data = processed_data[:int(len(processed_data)*0.98)]
+    val_data = processed_data[int(len(processed_data)*0.98):int(len(processed_data)*0.99)]
+    test_data = processed_data[int(len(processed_data)*0.99):]
     
     torch.save(train_data, os.path.join(output_dir, 'train.pt'))
     torch.save(val_data, os.path.join(output_dir, 'val.pt'))
