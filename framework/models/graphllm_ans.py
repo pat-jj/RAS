@@ -8,7 +8,7 @@ from models.gnns import load_gnn_model
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 import logging
 
-class ActionPlanner(torch.nn.Module):
+class GraphLLM(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.max_txt_len = args.max_txt_len
@@ -16,7 +16,8 @@ class ActionPlanner(torch.nn.Module):
 
         print('Loading LLAMA')
         kwargs = {
-            "max_memory": {0: '40GiB', 1: '40GiB', 2: '40GiB', 3: '40GiB'},
+            "max_memory": {0: '40GiB', 1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB', 6: '40GiB', 7: '40GiB'},
+            # "max_memory": {0: '40GiB', 1: '40GiB', 2: '40GiB', 3: '40GiB'},
             "device_map": "auto",
             "revision": "main",
         }
@@ -134,8 +135,16 @@ class ActionPlanner(torch.nn.Module):
         eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
             self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
-        ).unsqueeze(0)
-        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
+        ).unsqueeze(0).to(self.model.device)
+        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).to(self.model.device)
+
+        # First pass to determine max length
+        max_length = 0
+        for i in range(batch_size):
+            input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
+            graph_length = 2  # BOS token and graph embedding
+            curr_length = len(input_ids) + graph_length
+            max_length = max(max_length, curr_length)
 
         # Process each item in batch
         batch_inputs_embeds = []
@@ -156,27 +165,33 @@ class ActionPlanner(torch.nn.Module):
             inputs_embeds = inputs_embeds.unsqueeze(0)
             inputs_embeds = torch.cat([bos_embeds, graph_embeds, inputs_embeds], dim=1)
             
+            # Pad to max_length
+            curr_length = inputs_embeds.size(1)
+            if curr_length < max_length:
+                padding = pad_embeds.expand(max_length - curr_length, -1)
+                inputs_embeds = torch.cat([padding, inputs_embeds.squeeze(0)], dim=0)
+            else:
+                inputs_embeds = inputs_embeds.squeeze(0)
+            
+            # Ensure all sequences are exactly max_length
+            inputs_embeds = inputs_embeds[:max_length]
+            
             # Store batch items
-            batch_inputs_embeds.append(inputs_embeds.squeeze(0))
-            batch_attention_mask.append([1] * inputs_embeds.size(1))
+            batch_inputs_embeds.append(inputs_embeds)
+            attention_mask = torch.zeros(max_length, dtype=torch.long, device=self.model.device)
+            attention_mask[max_length - curr_length:] = 1
+            batch_attention_mask.append(attention_mask)
             
             # Prepare labels with ignore indices
-            full_label_ids = [self.IGNORE_INDEX] * (inputs_embeds.size(1)-len(label_input_ids)) + label_input_ids
+            label_padding = [self.IGNORE_INDEX] * (max_length - len(label_input_ids))
+            full_label_ids = label_padding + label_input_ids
+            full_label_ids = full_label_ids[:max_length]  # Ensure exact length
             batch_label_input_ids.append(full_label_ids)
 
-        # Pad sequences to max length
-        max_length = max([x.shape[0] for x in batch_inputs_embeds])
-        for i in range(batch_size):
-            pad_length = max_length - batch_inputs_embeds[i].shape[0]
-            if pad_length > 0:
-                batch_inputs_embeds[i] = torch.cat([pad_embeds.repeat(pad_length, 1), batch_inputs_embeds[i]])
-                batch_attention_mask[i] = [0] * pad_length + batch_attention_mask[i]
-                batch_label_input_ids[i] = [self.IGNORE_INDEX] * pad_length + batch_label_input_ids[i]
-
         # Stack batch tensors
-        inputs_embeds = torch.stack(batch_inputs_embeds, dim=0).to(self.model.device)
-        attention_mask = torch.tensor(batch_attention_mask).to(self.model.device)
-        label_input_ids = torch.tensor(batch_label_input_ids).to(self.model.device)
+        inputs_embeds = torch.stack(batch_inputs_embeds, dim=0)
+        attention_mask = torch.stack(batch_attention_mask, dim=0)
+        label_input_ids = torch.tensor(batch_label_input_ids, device=self.model.device)
 
         # Forward pass with autocast
         with self.maybe_autocast():

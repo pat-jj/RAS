@@ -1,44 +1,30 @@
 import torch
 import torch.nn.parallel
 from sentence_transformers import SentenceTransformer
-from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from pathlib import Path
 import json
-from typing import List, Dict
-import pandas as pd
-from tqdm import tqdm
-import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
-import os
-from functools import partial
-import time
-from datetime import datetime
 import numpy as np
 import torch.nn as nn
-import json
-import torch
 from torch_geometric.data import Data
-from sentence_transformers import SentenceTransformer
 from claude_api import get_claude_response
-from threading import Lock
-import queue
-import logging
-from concurrent.futures import ThreadPoolExecutor
 
 
 
 def get_planner_instruction(model_name):
     if model_name != 'sonnet':
-        # return """You are a planner to determine if the question can be answered with current information.
-        # You will be output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
-        # You will be output [SUBQ] with the subquery if the question needs a subquery.
-        # You will be output [SUFFICIENT] if the question can be answered with provided information.
-        # """
         return """You are a planner to determine if the question can be answered with current information and output the appropriate label as well as the subquery if needed.
 Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval.
 Output [SUBQ] with an subquery for retrieval if still needs a subquery.
 Output [SUFFICIENT] if the question can be answered with the provided information.
+"""
+
+
+def get_answerer_instruction(model_name):
+    if model_name != 'sonnet':
+        return """You are a answerer given a question and retrieved graph information.
+Each [SUBQ] is a subquery we generated through reasoning for the question. The retrieved graph information follows each [SUBQ] is relevant graph information we retrieved to answer the subquery.
+[NO_RETRIEVAL] means the question can be answered with the question itself without any retrieval.
+The main question starts with "Question: ". Please answer the question, with subqueries and retrieved graph information if they are helpful.
 """
 
 

@@ -6,6 +6,7 @@ from tqdm import tqdm
 from collections import defaultdict
 import os
 import random
+import pickle
 
 def load_hotpotqa_main_data(path):
     """
@@ -315,14 +316,21 @@ Output [SUFFICIENT] if the question can be answered with the provided informatio
 # Output [SUBQ] with the question itself if it can be answered with retrieval by the question itself.
 
 def load_processed_data(output_dir):
-    if os.path.exists(os.path.join(output_dir, 'train.pt')):
-        train_data = torch.load(os.path.join(output_dir, 'train.pt'))
-        val_data = torch.load(os.path.join(output_dir, 'val.pt'))
-        test_data = torch.load(os.path.join(output_dir, 'test.pt'))
-        processed_data = train_data + val_data + test_data
-        return processed_data
-    else:
-        return []
+    """Load data from pickle files"""
+    all_data = []
+    
+    for split in ['train', 'val', 'test']:
+        pkl_file = os.path.join(output_dir, f'{split}.pkl')
+        if os.path.exists(pkl_file):
+            try:
+                with open(pkl_file, 'rb') as f:
+                    split_data = pickle.load(f)
+                all_data.extend(split_data)
+                print(f"Loaded {split} data: {len(split_data)} samples")
+            except Exception as e:
+                print(f"Error loading {split} data: {e}")
+                
+    return all_data
 
 
 
@@ -493,13 +501,18 @@ def main():
     val_data = processed_data[int(len(processed_data)*0.98):int(len(processed_data)*0.99)]
     test_data = processed_data[int(len(processed_data)*0.99):]
     
-    torch.save(train_data, os.path.join(output_dir, 'train.pt'))
-    torch.save(val_data, os.path.join(output_dir, 'val.pt'))
-    torch.save(test_data, os.path.join(output_dir, 'test.pt'))
-    
-    print(f"Saved {len(train_data)} train examples to {os.path.join(output_dir, 'train.pt')}")
-    print(f"Saved {len(val_data)} val examples to {os.path.join(output_dir, 'val.pt')}")
-    print(f"Saved {len(test_data)} test examples to {os.path.join(output_dir, 'test.pt')}")
+    # Save using pickle
+    print(f"Saving {len(train_data)} train examples...")
+    with open(os.path.join(output_dir, 'train.pkl'), 'wb') as f:
+        pickle.dump(train_data, f)
+        
+    print(f"Saving {len(val_data)} val examples...")
+    with open(os.path.join(output_dir, 'val.pkl'), 'wb') as f:
+        pickle.dump(val_data, f)
+        
+    print(f"Saving {len(test_data)} test examples...")
+    with open(os.path.join(output_dir, 'test.pkl'), 'wb') as f:
+        pickle.dump(test_data, f)
     
     # Save a few examples for inspection
     example_file = os.path.join(output_dir, 'examples.json')

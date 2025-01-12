@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
 import argparse
-from models.action_planner import ActionPlanner
+from models.graphllm_ans import GraphLLM
 from torch.optim import AdamW
 import wandb
 from tqdm import tqdm
@@ -12,6 +12,31 @@ import math
 from torch.optim.lr_scheduler import LambdaLR
 from huggingface_hub import HfApi
 from huggingface_hub import login
+import pickle
+from safetensors.torch import save_model, load_model
+
+
+def safe_save_checkpoint(model, save_path):
+    """Simple safetensors save"""
+    try:
+        save_path = save_path.replace('.pt', '.safetensors')
+        save_model(model, save_path)
+        logging.info(f'Successfully saved model to {save_path}')
+        return True
+    except Exception as e:
+        logging.error(f'Error saving model: {str(e)}')
+        return False
+
+def load_checkpoint(model, load_path):
+    """Simple safetensors load"""
+    try:
+        load_path = load_path.replace('.pt', '.safetensors')
+        load_model(model, load_path)
+        return True
+    except Exception as e:
+        logging.error(f'Error loading model: {str(e)}')
+        return False
+
 
 def upload_to_hub(model_path, repo_id, token):
     """Upload model checkpoint to Hugging Face Hub"""
@@ -28,16 +53,16 @@ def upload_to_hub(model_path, repo_id, token):
     # Upload the model file
     api.upload_file(
         path_or_fileobj=model_path,
-        path_in_repo="model.pt",
+        path_in_repo="model.safetensors",
         repo_id=repo_id,
         commit_message="Upload trained model"
     )
     logging.info(f"Model uploaded to {repo_id}")
     
 
-class PlannerDataset(Dataset):
+class AnswererDataset(Dataset):
     def __init__(self, data_path):
-        self.data = torch.load(data_path)
+        self.data = pickle.load(open(data_path, 'rb'))
         
     def __len__(self):
         return len(self.data)
@@ -50,9 +75,9 @@ class PlannerDataset(Dataset):
         }
 
 def setup_logging(args):
-    os.makedirs('planner/logs', exist_ok=True)
+    os.makedirs('answerer/logs', exist_ok=True)
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = os.path.join('planner/logs', f'training_{timestamp}.log')
+    log_file = os.path.join('answerer/logs', f'training_{timestamp}.log')
     
     logging.basicConfig(
         level=logging.INFO,
@@ -71,7 +96,7 @@ def setup_wandb(args):
     os.environ['WANDB_RUN_ID'] = run_id
 
     wandb.init(
-        project="action-planner-hotpotqa",
+        project="answerer-all-train",
         config=args,
         settings=wandb.Settings(start_method="thread")
     )
@@ -151,58 +176,35 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
                     
                 # Add checkpoint saving logic
                 if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
-                    model_path = os.path.join(args.output_dir, f'latest_checkpoint.pt')
-                    torch.save({
-                        'epoch': epoch,
-                        'step': batch_idx,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'train_loss': total_loss / (batch_idx + 1),
-                    }, model_path)
+                    model_path = os.path.join(args.output_dir, f'latest_checkpoint.safetensors')
+                    save_model(model, model_path)
                     logging.info(f'Saved intermediate checkpoint to {model_path}')
                     
             except Exception as e:
                 logging.error(f"Error in batch {batch_idx}: {str(e)}")
                 # Save emergency checkpoint on batch error
-                emergency_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
-                torch.save({
-                    'epoch': epoch,
-                    'step': batch_idx,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'train_loss': total_loss / max(1, batch_idx),
-                }, emergency_path)
+                emergency_path = os.path.join(args.output_dir, 'emergency_checkpoint.safetensors')
+                save_model(model, emergency_path)
                 logging.info(f'Saved emergency checkpoint due to error: {emergency_path}')
                 continue
                 
     except Exception as e:
         logging.error(f"Critical error in epoch {epoch}: {str(e)}")
         # Save emergency checkpoint on epoch error
-        emergency_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'train_loss': total_loss / max(1, batch_idx),
-        }, emergency_path)
+        emergency_path = os.path.join(args.output_dir, 'emergency_checkpoint.safetensors')
+        save_model(model, emergency_path)
         logging.info(f'Saved emergency checkpoint due to critical error: {emergency_path}')
+        
         
     return total_loss / len(train_loader)
 
-def test_model_saving(model, optimizer, scheduler, args):
+def test_model_saving(model, args):
     """Test if model saving works properly"""
     try:
-        test_path = os.path.join(args.output_dir, 'test_save.pt')
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-        }, test_path)
+        test_path = os.path.join(args.output_dir, 'test_save.safetensors')
+        save_model(model, test_path)
         # Try loading it back
-        torch.load(test_path)
+        load_model(model, test_path)
         os.remove(test_path)
         logging.info("Model saving/loading test passed")
         return True
@@ -228,14 +230,6 @@ def evaluate(model, val_loader):
                     batch['label'] = [x.to(device) if torch.is_tensor(x) else x for x in batch['label']]
                 if 'graphs' in batch:
                     batch['graphs'] = [[g.to(device) for g in graphs] for graphs in batch['graphs']]                
-                
-                # Print first graph info if exists
-                # if batch['graphs'] and len(batch['graphs']) > 0:
-                #     first_graph_list = batch['graphs'][0]
-                #     # logging.info(f"First item graphs count: {len(first_graph_list)}")
-                #     if first_graph_list:
-                #         g = first_graph_list[0]
-                #         # logging.info(f"First graph shape - x: {g.x.shape}, edge_index: {g.edge_index.shape}")
 
                 # Skip incomplete batches
                 if len(batch['input']) != val_loader.batch_size:
@@ -296,6 +290,30 @@ def verify_huggingface_access(repo_id, token):
     except Exception as e:
         logging.error(f"HuggingFace verification failed: {str(e)}")
         return False
+    
+    
+def create_collate_fn(tokenizer, max_new_tokens):
+    def collate_fn(batch):
+        # Process inputs normally
+        inputs = [item['input'] for item in batch]
+        graphs = [item['graphs'] for item in batch]
+        
+        # Process labels - truncate if needed
+        labels = []
+        for item in batch:
+            # Tokenize and truncate label
+            tokenized = tokenizer(item['label'], add_special_tokens=False)
+            truncated_ids = tokenized.input_ids[:max_new_tokens]
+            # Decode back to text
+            truncated_text = tokenizer.decode(truncated_ids)
+            labels.append(truncated_text)
+            
+        return {
+            'input': inputs,
+            'label': labels,
+            'graphs': graphs
+        }
+    return collate_fn
 
 def main():
     parser = argparse.ArgumentParser()
@@ -314,7 +332,7 @@ def main():
     parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train')
     parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train/checkpoints')
     parser.add_argument('--max_txt_len', type=int, default=1500)
-    parser.add_argument('--max_new_tokens', type=int, default=128)  # Shorter for planning decisions
+    parser.add_argument('--max_new_tokens', type=int, default=300)  # Shorter for planning decisions
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=1e-5)
@@ -358,31 +376,27 @@ def main():
     logger.info("Loading datasets...")
     if args.debug:
         logger.info("Debug mode: Loading validation data only...")
-        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pt'))
+        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val.pkl'))
         train_dataset = val_dataset  # Use validation data for training in debug mode
         args.epochs = 1  # Reduce epochs for debugging
         args.batch_size = min(4, args.batch_size)  # Smaller batch size for debugging
     else:
-        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'train.pt'))
-        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pt'))
+        train_dataset = AnswererDataset(os.path.join(args.data_dir, 'train.pkl'))
+        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val.pkl'))
     
     val_dataset_small = torch.utils.data.Subset(val_dataset, range(40))
     
     # Initialize model
     logger.info("Initializing model...")
-    model = ActionPlanner(args)
+    model = GraphLLM(args)
     
     # Setup data loaders
     train_loader = DataLoader(
-        train_dataset, 
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        drop_last=True, 
-        collate_fn=lambda x: {
-            'input': [item['input'] for item in x],
-            'label': [item['label'] for item in x],
-            'graphs': [item['graphs'] for item in x]
-        }
+        drop_last=True,
+        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
     )
     
     val_loader_small = DataLoader(
@@ -390,11 +404,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         drop_last=True,
-        collate_fn=lambda x: {
-            'input': [item['input'] for item in x],
-            'label': [item['label'] for item in x],
-            'graphs': [item['graphs'] for item in x]
-        }
+        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
     )
     
     val_loader = DataLoader(
@@ -402,11 +412,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         drop_last=True, 
-        collate_fn=lambda x: {
-            'input': [item['input'] for item in x],
-            'label': [item['label'] for item in x],
-            'graphs': [item['graphs'] for item in x]
-        }
+        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
     )
     
     # Training setup
@@ -425,7 +431,7 @@ def main():
     
     # Test model saving functionality
     logger.info("Testing model saving functionality...")
-    if not test_model_saving(model, optimizer, scheduler, args):
+    if not test_model_saving(model, args):
         logger.error("Model saving test failed. Aborting training.")
         return
     
@@ -477,28 +483,15 @@ def main():
             # Save best model if validation improves
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                model_path = os.path.join(args.output_dir, 'best_model.pt')
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'best_val_loss': best_val_loss,
-                    'train_loss': train_loss,
-                }, model_path)
+                model_path = os.path.join(args.output_dir, 'best_model.safetensors')
+                save_model(model, model_path)
                 logger.info(f'Saved new best model with validation loss: {val_loss:.4f}')
         
         except Exception as e:
             logging.error(f"Error during validation in epoch {epoch}: {str(e)}")
             # Save checkpoint if validation fails
-            model_path = os.path.join(args.output_dir, 'latest_checkpoint.pt')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'train_loss': train_loss,
-            }, model_path)
+            model_path = os.path.join(args.output_dir, 'latest_checkpoint.safetensors')
+            save_model(model, model_path)
             logging.info(f'Saved checkpoint due to validation error')
             continue
     

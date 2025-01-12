@@ -4,7 +4,7 @@ import os
 import faiss
 import torch
 from transformers import AutoModelForCausalLM, AutoModel, AutoTokenizer, T5Tokenizer, T5ForConditionalGeneration
-from utils import GraphProcessor, load_theme_classifier, load_theme_distribution_shifter, get_planner_instruction
+from utils import GraphProcessor, load_theme_classifier, load_theme_distribution_shifter, get_planner_instruction, get_answerer_instruction
 from tqdm import tqdm
 import numpy as np
 
@@ -52,8 +52,8 @@ def load_knowledge(args):
            theme_to_dense_idx, dense_to_theme_idx
           
            
-# Model initialization
-def init_models(args):
+# Model loading
+def load_models(args):
     if args.planner_model != 'sonnet':
         print(f"Using {args.planner_model} as planner model, initializing model ...")
         planner_tokenizer = AutoTokenizer.from_pretrained(args.planner_model)
@@ -61,7 +61,7 @@ def init_models(args):
     else:
         planner_tokenizer = None
         planner_model = None
-        print("Using Sonnet, skipping planner model initialization ...")
+        print("Using Sonnet, skipping planner model loading ...")
         
     if args.answerer_model != 'sonnet':
         print(f"Using {args.answerer_model} as answerer model, initializing model ...")
@@ -70,7 +70,7 @@ def init_models(args):
     else:
         answerer_tokenizer = None
         answerer_model = None
-        print("Using Sonnet, skipping answerer model initialization ...")
+        print("Using Sonnet, skipping answerer model loading ...")
         
     print("Loading Dense Encoder ...")
     dense_encoder_tokenizer = AutoTokenizer.from_pretrained(args.dense_encoder)
@@ -174,6 +174,7 @@ def ras(args, models, knowledge_index, question, others=None):
     
     graph_processor = GraphProcessor()
     planner_instruction = get_planner_instruction(args.planner_model)
+    answerer_instruction = get_answerer_instruction(args.answerer_model)
     end_iteration_flag = False
     
     # Stage 0: Determine if retrieval is needed
@@ -191,40 +192,59 @@ def ras(args, models, knowledge_index, question, others=None):
         sub_query = planner_output
     
     graphs = []
-    info_str = None
+    triple_lists = []
+    subqueries = []
+    inputs = []
+
     while not end_iteration_flag and len(graphs) < 5:
         # Stage 1: Theme-based retrieval
-        final_texts, final_scores = theme_scoping_and_dense_retrieval(dense_encoder_tokenizer, dense_encoder_model, \
+        retrieved_docs, retrieved_scores = theme_scoping_and_dense_retrieval(dense_encoder_tokenizer, dense_encoder_model, \
             theme_classifier, theme_encoder, theme_label_mapping, theme_shifter, knowledge_index, sub_query, others)
         
         # Stage 2: Text-to-triples-to-graph
-        triples = text_to_triples(t2t_tokenizer, t2t_model, final_texts)
+        triples = text_to_triples(t2t_tokenizer, t2t_model, retrieved_docs)
         graph = graph_processor.create_graph_from_triples(triples)
+        
+        subqueries.append(sub_query)
+        triple_lists.append(triples)
         graphs.append(graph)
         
-        info_str = planner_instruction + "\n" + sub_query + "\n" + "Retrieved Graph Information: " + str(triples) + '\n' \
-            if info_str is None else info_str + sub_query + "\n" + "Retrieved Graph Information: " + str(triples) + '\n'
+        planner_intput = ""
+        for i in range(len(subqueries)):
+            planner_intput += subqueries[i] + "\n" + "Retrieved Graph Information: " + str(triple_lists[i]) + '\n'
+            
+        planner_intput += "Question: " + question
+        inputs.append(planner_intput)
+                
         # Stage 3: Plan next action
         with torch.no_grad():
             planner_output = planner_model.inference({
-                'input': [info_str + 'Question: ' + question],
+                'input': [planner_instruction + "\n" + planner_intput],
                 'graphs': [graphs],
-                'label': ['']
+                'label': [''] # dummy label
             })['pred'][0]
             
-        if '[SUFFICIENT]'.lower() in planner_output.lower():
+        if '[SUFFICIENT]'.lower() in planner_output.lower(): # information is sufficient
             end_iteration_flag = True
         else:
             sub_query = planner_output
     
-    #TODO
-    answerer_input = ...
-    generated_answer = ...
+    # Stage 4: Answering
+    ## answer the question with the final input
+    answerer_input = {
+        'input': [answerer_instruction + "\n" + inputs[-1]],
+        'graphs': [graphs],
+        'label': [''] # dummy label
+    }
     
+    with torch.no_grad():
+        answerer_output = answerer_model.inference(answerer_input)['pred'][0]
+        
+    generated_answer = answerer_output
+        
     return generated_answer
     
-
-
+    
 # Evaluation
 def evaluate(args, generated_answers, true_answers):
     
@@ -256,7 +276,7 @@ def main():
     args = read_args()
     questions, answers, others = load_data(args)
     knowledge_index = load_knowledge(args)
-    models = init_models(args)
+    models = load_models(args)
     
     print("Iteratively RAS ...")
     generated_answers = []
