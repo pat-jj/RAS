@@ -59,8 +59,9 @@ def main(output_dir):
     hotpotqa_pairs = {item['question']: item['answer'] for item in tqdm(hotpotqa_data)}
     
     print("Loading Selfrag data...")
-    selfrag_data_path = "/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries.json"
-    with open(selfrag_data_path, 'r', encoding='utf-8') as f:
+    # selfrag_data_path = "/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries.json"
+    selfrag_data_path = "/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries_asqa_arc_easy.json"
+    with open(selfrag_data_path, 'r') as f:
         selfrag_data = json.load(f)
         
     selfrag_pairs = {}
@@ -131,18 +132,18 @@ def main(output_dir):
     # print(f"Saved {len(train_data)} train examples to {os.path.join(output_dir, 'train.pt')}")
     # print(f"Saved {len(val_data)} val examples to {os.path.join(output_dir, 'val.pt')}")
     
-    with open(os.path.join(output_dir, 'train.pkl'), 'wb') as f:
+    with open(os.path.join(output_dir, 'train_v2.pkl'), 'wb') as f:
         pickle.dump(train_data, f)
-    with open(os.path.join(output_dir, 'val.pkl'), 'wb') as f:
+    with open(os.path.join(output_dir, 'val_v2.pkl'), 'wb') as f:
         pickle.dump(val_data, f)
             
-    print(f"Saved {len(train_data)} train samples to {os.path.join(output_dir, 'train.pkl')}")
-    print(f"Saved {len(val_data)} val samples to {os.path.join(output_dir, 'val.pkl')}")
+    print(f"Saved {len(train_data)} train samples to {os.path.join(output_dir, 'train_v2.pkl')}")
+    print(f"Saved {len(val_data)} val samples to {os.path.join(output_dir, 'val_v2.pkl')}")
     
     example_file = os.path.join(output_dir, 'examples.json')
     with open(example_file, 'w') as f:
-        json.dump(answerer_data[:20], f, indent=2, default=str)
-    print(f"Saved 20 examples to {example_file} for inspection")
+        json.dump(answerer_data[:50], f, indent=2, default=str)
+    print(f"Saved 50 examples to {example_file} for inspection")
             
 if __name__ == "__main__":
     main(output_dir="/shared/eng/pj20/firas_data/answerer/all_train")

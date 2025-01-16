@@ -67,7 +67,7 @@ def convert_to_faiss(embeddings, texts=None, output_dir="faiss_index"):
     
     logger.info("Checking vector normalization...")
     norms = np.linalg.norm(embeddings, axis=1)
-    if not np.allclose(norms, 1.0, atol=1e-5):
+    if not np.allclose(norms, 1.0, atol=1e-8):
         logger.info("Normalizing vectors...")
         # Handle zero-norm vectors
         zero_norms = norms == 0

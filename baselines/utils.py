@@ -1,3 +1,99 @@
+import jsonlines
+import json
+import copy
+import re
+
+PROMPT_DICT = {
+    "prompt_input": (
+        "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n"
+    ),
+    "prompt_no_input": (
+        "### Instruction:\n{instruction}\n\n### Response:\n"
+    ),
+    "prompt_no_input_retrieval": (
+        "Below is an instruction that describes a task. "
+        "Write a response that appropriately completes the request.\n\n"
+        "### Paragraph:\n{paragraph}\n\n### Instruction:\n{instruction}\n\n### Response:"
+    ),
+    "prompt_open_instruct": (
+        "<user>\n{instruction}\n"
+        "<assistant>\n"
+    ),
+    "prompt_open_instruct_retrieval": (
+        "<user>\nReference:{paragraph}\n{instruction}\n"
+        "<assistant>\n"
+    ),
+    "llama_chat_prompt": (
+        "[INST]{instruction}[/INST]"
+    ),
+    "llama_chat_prompt_retrieval": (
+        "[INST]{paragraph}\n{instruction}[/INST]"
+    ),
+}
+
+TASK_INST = {"wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
+             "fever": "Is the following statement correct or not? Say true if it's correct; otherwise say false in lowercase. Do not say anything else, and only output true or false.",
+             "eli5": "Provide a paragraph-length response using simple words to answer the following question.",
+             "obqa": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
+             "arc_easy": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
+             "arc_c": "Given four answer candidates, A, B, C and D, choose the best answer choice. Only output the letter of the answer choice, e.g. A, B, C, or D. Do not say anything else, and only output A, B, C, or D.",
+             "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
+             "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers. Cite the sources when you use them (e.g., xxx [1])."}
+
+rel_tokens_names = ["[Irrelevant]", "[Relevant]"]
+retrieval_tokens_names = ["[No Retrieval]",
+                          "[Retrieval]", "[Continue to Use Evidence]"]
+utility_tokens_names = ["[Utility:1]", "[Utility:2]",
+                        "[Utility:3]", "[Utility:4]", "[Utility:5]"]
+ground_tokens_names = ["[Fully supported]",
+                       "[Partially supported]", "[No support / Contradictory]"]
+other_special_tokens = ["<s>", "</s>", "[PAD]",
+                        "<unk>", "<paragraph>", "</paragraph>"]
+control_tokens = ["[Fully supported]", "[Partially supported]", "[No support / Contradictory]", "[No Retrieval]", "[Retrieval]",
+                  "[Irrelevant]", "[Relevant]", "<paragraph>", "</paragraph>", "[Utility:1]", "[Utility:2]", "[Utility:3]", "[Utility:4]", "[Utility:5]"]
+
+
+
+def fix_spacing(input_text):
+    # Add a space after periods that lack whitespace
+    output_text = re.sub(r'(?<=\w)([.!?])(?=\w)', r'\1 ', input_text)
+    return output_text
+
+
+def postprocess(pred):
+    special_tokens = ["[Fully supported]", "[Partially supported]", "[No support / Contradictory]", "[No Retrieval]", "[Retrieval]",
+                      "[Irrelevant]", "[Relevant]", "<paragraph>", "</paragraph>", "[Utility:1]", "[Utility:2]", "[Utility:3]", "[Utility:4]", "[Utility:5]"]
+    for item in special_tokens:
+        pred = pred.replace(item, "")
+    pred = pred.replace("</s>", "")
+
+    if len(pred) == 0:
+        return ""
+    if pred[0] == " ":
+        pred = pred[1:]
+    return pred
+
+
+def load_jsonlines(file):
+    with jsonlines.open(file, 'r') as jsonl_f:
+        lst = [obj for obj in jsonl_f]
+    return lst
+
+
+def load_file(input_fp):
+    if input_fp.endswith(".json"):
+        input_data = json.load(open(input_fp))
+    else:
+        input_data = load_jsonlines(input_fp)
+    return input_data
+
+
+def save_file_jsonl(data, fp):
+    with jsonlines.open(fp, mode='w') as writer:
+        writer.write_all(data)
+
+
+     
 import torch
 import torch.nn.parallel
 from sentence_transformers import SentenceTransformer
@@ -222,56 +318,6 @@ import json
 import copy
 import re
 
-PROMPT_DICT = {
-    "prompt_input": (
-        "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n"
-    ),
-    "prompt_no_input": (
-        "### Instruction:\n{instruction}\n\n### Response:\n"
-    ),
-    "prompt_no_input_retrieval": (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Paragraph:\n{paragraph}\n\n### Instruction:\n{instruction}\n\n### Response:"
-    ),
-    "prompt_open_instruct": (
-        "<user>\n{instruction}\n"
-        "<assistant>\n"
-    ),
-    "prompt_open_instruct_retrieval": (
-        "<user>\nReference:{paragraph}\n{instruction}\n"
-        "<assistant>\n"
-    ),
-    "llama_chat_prompt": (
-        "[INST]{instruction}[/INST]"
-    ),
-    "llama_chat_prompt_retrieval": (
-        "[INST]{paragraph}\n{instruction}[/INST]"
-    ),
-}
-
-TASK_INST = {"wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
-             "fever": "Is the following statement correct or not? Say true if it's correct; otherwise say false.",
-             "eli5": "Provide a paragraph-length response using simple words to answer the following question.",
-             "obqa": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "arc_easy": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "arc_c": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
-             "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers."}
-
-rel_tokens_names = ["[Irrelevant]", "[Relevant]"]
-retrieval_tokens_names = ["[No Retrieval]",
-                          "[Retrieval]", "[Continue to Use Evidence]"]
-utility_tokens_names = ["[Utility:1]", "[Utility:2]",
-                        "[Utility:3]", "[Utility:4]", "[Utility:5]"]
-ground_tokens_names = ["[Fully supported]",
-                       "[Partially supported]", "[No support / Contradictory]"]
-other_special_tokens = ["<s>", "</s>", "[PAD]",
-                        "<unk>", "<paragraph>", "</paragraph>"]
-control_tokens = ["[Fully supported]", "[Partially supported]", "[No support / Contradictory]", "[No Retrieval]", "[Retrieval]",
-                  "[Irrelevant]", "[Relevant]", "<paragraph>", "</paragraph>", "[Utility:1]", "[Utility:2]", "[Utility:3]", "[Utility:4]", "[Utility:5]"]
-
-
 def load_special_tokens(tokenizer, use_grounding=False, use_utility=False):
     ret_tokens = {token: tokenizer.convert_tokens_to_ids(
         token) for token in retrieval_tokens_names}
@@ -426,6 +472,15 @@ def postprocess_answers_closed(output, task, choices=None):
         final_output = "true" if output == "SUPPORTS" else "REFUTES"
     if task == "fever" and output.lower() in ["true", "false"]:
         final_output = output.lower()
+        
+    if task == "fever":
+        # Extract just true/false from the response
+        output = output.lower().strip()
+        if "true" in output:
+            final_output = "true"
+        elif "false" in output:
+            final_output = "false"
+    
     if final_output is None:
         return output
     else:

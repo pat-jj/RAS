@@ -60,7 +60,7 @@ def load_models(args):
         planner_model = AutoModelForCausalLM.from_pretrained(args.planner_model)
     else:
         planner_tokenizer = None
-        planner_model = None
+        planner_model = "sonnet"
         print("Using Sonnet, skipping planner model loading ...")
         
     if args.answerer_model != 'sonnet':
@@ -69,7 +69,7 @@ def load_models(args):
         answerer_model = AutoModelForCausalLM.from_pretrained(args.answerer_model)
     else:
         answerer_tokenizer = None
-        answerer_model = None
+        answerer_model = "sonnet"
         print("Using Sonnet, skipping answerer model loading ...")
         
     print("Loading Dense Encoder ...")

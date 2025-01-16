@@ -3,9 +3,12 @@ __pycache__/
 wandb
 results
 claude_api.py
+openai_api.py
 *.pt
 *.json
 play.ipynb
 logs
 common
 llm_tune
+FActScore
+ALCE

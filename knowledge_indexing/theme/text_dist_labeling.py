@@ -77,7 +77,6 @@ def load_checkpoints(checkpoint_dir):
         results = pd.read_pickle(checkpoint)
         all_results.update(results)
         
-    
     return all_results
 
 def load_model(checkpoint_path: str, device: torch.device):
@@ -167,23 +166,57 @@ def process_batch(rank, world_size, texts, checkpoint_path, batch_size, output_p
     cleanup()
     return results_dict, label_mapping
 
+def load_and_filter_existing_results(existing_file: str, texts: List[str]) -> tuple[Dict, List[int]]:
+    """Load existing results and identify texts that need processing."""
+    print(f"Loading existing results from {existing_file}")
+    
+    # Initialize containers
+    existing_results = {}
+    reprocess_indices = []
+    chunk_size = 100000  # Adjust this value based on your available memory
+    
+    # Process the CSV in chunks
+    for chunk_idx, chunk in tqdm(enumerate(pd.read_csv(existing_file, chunksize=chunk_size))):
+        start_idx = chunk_idx * chunk_size
+        
+        for idx, row in enumerate(chunk.itertuples()):
+            global_idx = start_idx + idx
+            probs = row[2:]  # Skip index and text columns
+            
+            # Check if the embedding is a zero vector
+            if np.all(np.array(probs) == 0):
+                reprocess_indices.append(global_idx)
+            else:
+                existing_results[global_idx] = {
+                    'text': row.text,
+                    'probabilities': np.array(probs)
+                }
+        
+        # Free up memory
+        del chunk
+    
+    print(f"Found {len(existing_results)} valid existing results")
+    print(f"Found {len(reprocess_indices)} zero-vector embeddings to reprocess")
+    
+    # Identify completely new texts
+    total_existing = (chunk_idx + 1) * chunk_size
+    new_indices = list(range(total_existing, len(texts)))
+    print(f"Found {len(new_indices)} new texts to process")
+    
+    # Combine indices that need processing
+    indices_to_process = reprocess_indices + new_indices
+    texts_to_process = [texts[i] for i in indices_to_process]
+    
+    return existing_results, texts_to_process, indices_to_process
+
 def get_class_probabilities(texts: List[str], 
                           checkpoint_path: str, 
                           output_path: str,
+                          existing_file: str = None,
                           batch_size: int = 16,
                           save_interval: int = 4000) -> pd.DataFrame:
     """
     Generate class probabilities for a list of texts using multiple GPUs with progress tracking.
-    
-    Args:
-        texts: List of input texts to classify
-        checkpoint_path: Path to the model checkpoint
-        output_path: Path to save results and checkpoints
-        batch_size: Batch size for processing per GPU
-        save_interval: Number of samples to process before saving a checkpoint
-    
-    Returns:
-        DataFrame with texts and their class probabilities
     """
     # Get number of available GPUs
     world_size = torch.cuda.device_count()
@@ -192,21 +225,34 @@ def get_class_probabilities(texts: List[str],
     
     print(f"Using {world_size} GPUs")
     
-    # Check for existing checkpoints
     checkpoint_dir = Path(output_path).parent / "checkpoints"
-    existing_results = load_checkpoints(checkpoint_dir)
-    if existing_results is not None:
-        print(f"Found existing results for {len(existing_results)} samples")
-        
-        # Filter out already processed texts
-        processed_indices = set(existing_results.keys())
-        texts_to_process = [text for i, text in enumerate(texts) if i not in processed_indices]
-        print(f"Remaining samples to process: {len(texts_to_process)}")
+    checkpoint_results = load_checkpoints(checkpoint_dir)
+    
+    if checkpoint_results:
+        print(f"Found existing checkpoints with {len(checkpoint_results)} processed items")
+        existing_results = checkpoint_results
     else:
-        texts_to_process = texts
+        existing_results = {}
+    
+    texts_to_process = texts
+    
+    # Handle existing results from previous run and checkpoints
+    if existing_file and Path(existing_file).exists():
+        file_results, texts_to_process, indices_to_process = load_and_filter_existing_results(
+            existing_file, texts
+        )
+        # Merge with checkpoint results
+        existing_results.update(file_results)
+    else:
+        indices_to_process = list(range(len(texts)))
+        # Filter out indices that were already processed in checkpoints
+        if checkpoint_results:
+            processed_indices = set(checkpoint_results.keys())
+            indices_to_process = [i for i in indices_to_process if i not in processed_indices]
+            texts_to_process = [texts[i] for i in indices_to_process]
     
     if not texts_to_process:
-        print("All texts have been processed. Loading results from checkpoints...")
+        print("All texts have been processed. Creating final DataFrame...")
         return create_results_dataframe(existing_results, texts)
     
     # Process remaining texts
@@ -219,9 +265,17 @@ def get_class_probabilities(texts: List[str],
     )
     
     # Load and merge all results
-    final_results = load_checkpoints(checkpoint_dir)
-    if existing_results:
-        final_results.update(existing_results)
+    checkpoint_dir = Path(output_path).parent / "checkpoints"
+    new_results = load_checkpoints(checkpoint_dir)
+    
+    # Map the new results back to their original indices
+    mapped_results = {}
+    for new_idx, result in new_results.items():
+        original_idx = indices_to_process[new_idx]
+        mapped_results[original_idx] = result
+    
+    # Merge with existing results
+    final_results = {**existing_results, **mapped_results}
     
     return create_results_dataframe(final_results, texts)
 
@@ -292,14 +346,22 @@ def main():
     # data_dir = '/shared/eng/pj20/firas_data/knowledge_source/wiki_2018'
     
     data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/all_wiki_text.json"
-    data_dir = '/shared/eng/pj20/firas_data/knowledge_source/wiki_2020'
+    # data_dir = '/shared/eng/pj20/firas_data/knowledge_source'
     
+    print(f"Loading data from {data_path}")
     with open(data_path, 'r') as f:
         wiki_text = json.load(f)
     
-    output_path = f'{data_dir}/wiki_class_probabilities.csv'
+    existing_file = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020_.csv'
+    output_path = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020.csv'
     print("\nProcessing Wiki text...")
-    results = get_class_probabilities(wiki_text, checkpoint_path, output_path, save_interval=500000)
+    results = get_class_probabilities(
+        wiki_text, 
+        checkpoint_path, 
+        output_path, 
+        existing_file=existing_file,
+        save_interval=500000
+    )
     results.to_csv(output_path, index=False)
     print(f"Results saved to {output_path}")
     # remove all checkpoints

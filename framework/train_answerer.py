@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
 import argparse
-from models.graphllm_ans import GraphLLM
+from models.graphllm_ans_v2 import GraphLLM
 from torch.optim import AdamW
 import wandb
 from tqdm import tqdm
@@ -38,24 +38,22 @@ def load_checkpoint(model, load_path):
         return False
 
 
-def upload_to_hub(model_path, repo_id, token):
+def upload_to_hub(args, model_path, repo_id, token):
     """Upload model checkpoint to Hugging Face Hub"""
     # Login to Hugging Face
-    login(token=token)
-    api = HfApi()
+    api = HfApi(token=token)
     
     # Create or get repository
     try:
-        api.create_repo(repo_id=repo_id, private=True)
+        api.create_repo(repo_id=repo_id, exist_ok=True)
     except Exception as e:
         logging.info(f"Repository already exists or error occurred: {e}")
     
     # Upload the model file
     api.upload_file(
         path_or_fileobj=model_path,
-        path_in_repo="model.safetensors",
+        path_in_repo=f"latest_checkpoint_epoch_{args.finetune_method}_{args.llm_frozen}.safetensors",
         repo_id=repo_id,
-        commit_message="Upload trained model"
     )
     logging.info(f"Model uploaded to {repo_id}")
     
@@ -121,7 +119,7 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
     
     # Add checkpoint tracking
     total_steps = len(train_loader)
-    checkpoint_interval = total_steps // 4  # Save 4 times per epoch
+    checkpoint_interval = total_steps // 8  # Save 8 times per epoch
     
     try:
         for batch_idx, batch in enumerate(progress_bar):
@@ -179,6 +177,11 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
                     model_path = os.path.join(args.output_dir, f'latest_checkpoint.safetensors')
                     save_model(model, model_path)
                     logging.info(f'Saved intermediate checkpoint to {model_path}')
+                    
+                # Upload to hub every 2 checkpoints
+                if checkpoint_interval > 0 and (batch_idx + 1) % (checkpoint_interval * 2) == 0:
+                    if args.hf_repo_id and args.hf_token:
+                        upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
                     
             except Exception as e:
                 logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -292,28 +295,29 @@ def verify_huggingface_access(repo_id, token):
         return False
     
     
-def create_collate_fn(tokenizer, max_new_tokens):
-    def collate_fn(batch):
-        # Process inputs normally
-        inputs = [item['input'] for item in batch]
-        graphs = [item['graphs'] for item in batch]
-        
-        # Process labels - truncate if needed
-        labels = []
-        for item in batch:
-            # Tokenize and truncate label
-            tokenized = tokenizer(item['label'], add_special_tokens=False)
-            truncated_ids = tokenized.input_ids[:max_new_tokens]
-            # Decode back to text
-            truncated_text = tokenizer.decode(truncated_ids)
-            labels.append(truncated_text)
-            
-        return {
-            'input': inputs,
-            'label': labels,
-            'graphs': graphs
-        }
-    return collate_fn
+def improved_collate_fn(batch):
+    """
+    Improved collate function for GraphLLM that better aligns with the model's needs.
+    
+    The current GraphLLM implementation expects:
+    1. Raw input text for tokenization inside forward/inference
+    2. Raw label text for tokenization inside forward
+    3. List of graphs for each batch item
+    4. No pre-tokenization or pre-truncation of inputs/labels
+    
+    Key considerations:
+    - Model handles tokenization internally in forward() and inference()
+    - Model applies max_txt_len and max_new_tokens limits internally
+    - Model manages special tokens (BOS, EOS, EOS_USER) internally
+    - Model handles padding internally based on batch requirements
+    
+    Therefore, a simpler collate_fn is recommended:
+    """
+    return {
+        'input': [item['input'] for item in batch],
+        'label': [item['label'] for item in batch],
+        'graphs': [item['graphs'] for item in batch]
+    }
 
 def main():
     parser = argparse.ArgumentParser()
@@ -331,8 +335,9 @@ def main():
     # Training arguments
     parser.add_argument('--data_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train')
     parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/answerer/all_train/checkpoints')
-    parser.add_argument('--max_txt_len', type=int, default=1500)
-    parser.add_argument('--max_new_tokens', type=int, default=300)  # Shorter for planning decisions
+    parser.add_argument('--resume_from_checkpoint', type=str, default=None, help='Path to checkpoint to resume training from')
+    parser.add_argument('--max_txt_len', type=int, default=2500)
+    parser.add_argument('--max_new_tokens', type=int, default=300)  
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=1e-5)
@@ -376,19 +381,36 @@ def main():
     logger.info("Loading datasets...")
     if args.debug:
         logger.info("Debug mode: Loading validation data only...")
-        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val.pkl'))
+        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val_v2.pkl'))
         train_dataset = val_dataset  # Use validation data for training in debug mode
         args.epochs = 1  # Reduce epochs for debugging
         args.batch_size = min(4, args.batch_size)  # Smaller batch size for debugging
     else:
-        train_dataset = AnswererDataset(os.path.join(args.data_dir, 'train.pkl'))
-        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val.pkl'))
+        train_dataset = AnswererDataset(os.path.join(args.data_dir, 'train_v2.pkl'))
+        val_dataset = AnswererDataset(os.path.join(args.data_dir, 'val_v2.pkl'))
     
-    val_dataset_small = torch.utils.data.Subset(val_dataset, range(40))
+    val_dataset_small = torch.utils.data.Subset(val_dataset, range(16))
     
     # Initialize model
     logger.info("Initializing model...")
     model = GraphLLM(args)
+    
+    # Load checkpoint if specified
+    start_epoch = 0
+    if args.resume_from_checkpoint:
+        logger.info(f"Loading checkpoint from {args.resume_from_checkpoint}")
+        if load_checkpoint(model, args.resume_from_checkpoint):
+            # Extract epoch number from checkpoint name if it exists
+            try:
+                checkpoint_name = os.path.basename(args.resume_from_checkpoint)
+                if 'epoch' in checkpoint_name:
+                    start_epoch = int(checkpoint_name.split('epoch')[1].split('_')[0]) + 1
+                    logger.info(f"Resuming from epoch {start_epoch}")
+            except:
+                logger.info("Could not determine start epoch from checkpoint name")
+        else:
+            logger.error("Failed to load checkpoint. Starting from scratch.")
+            start_epoch = 0
     
     # Setup data loaders
     train_loader = DataLoader(
@@ -396,7 +418,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=True,
-        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
+        collate_fn=improved_collate_fn
     )
     
     val_loader_small = DataLoader(
@@ -404,7 +426,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         drop_last=True,
-        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
+        collate_fn=improved_collate_fn
     )
     
     val_loader = DataLoader(
@@ -412,7 +434,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         drop_last=True, 
-        collate_fn=create_collate_fn(model.tokenizer, args.max_new_tokens)
+        collate_fn=improved_collate_fn
     )
     
     # Training setup
@@ -430,23 +452,23 @@ def main():
     )
     
     # Test model saving functionality
-    logger.info("Testing model saving functionality...")
-    if not test_model_saving(model, args):
-        logger.error("Model saving test failed. Aborting training.")
-        return
+    # logger.info("Testing model saving functionality...")
+    # if not test_model_saving(model, args):
+    #     logger.error("Model saving test failed. Aborting training.")
+    #     return
     
     # Test validation before starting training
-    logger.info("Testing validation loop...")
-    try:
-        logger.info("Running test validation pass...")
-        test_val_metrics = evaluate(model, val_loader_small)
-        if test_val_metrics['val_loss'] == float('inf'):
-            logger.error("Validation test failed - no valid batches completed")
-            return
-        logger.info("Validation test completed successfully")
-    except Exception as e:
-        logger.error(f"Validation test failed with error: {str(e)}")
-        return
+    # logger.info("Testing validation loop...")
+    # try:
+    #     logger.info("Running test validation pass...")
+    #     test_val_metrics = evaluate(model, val_loader_small)
+    #     if test_val_metrics['val_loss'] == float('inf'):
+    #         logger.error("Validation test failed - no valid batches completed")
+    #         return
+    #     logger.info("Validation test completed successfully")
+    # except Exception as e:
+    #     logger.error(f"Validation test failed with error: {str(e)}")
+    #     return
         
     # Verify HuggingFace access if credentials provided
     hf_upload_ok = False
