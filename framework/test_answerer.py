@@ -119,7 +119,7 @@ def main():
         test_dataset_small,
         batch_size=args.batch_size,
         shuffle=False,
-        collate_fn=improved_collate_fn(model.tokenizer, args.max_new_tokens)
+        collate_fn=improved_collate_fn
     )
     
     # Run inference

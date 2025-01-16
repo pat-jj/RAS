@@ -17,7 +17,8 @@ class GraphLLM(torch.nn.Module):
 
         print('Loading LLAMA')
         kwargs = {
-            "max_memory": {0: '80GiB', 1: '80GiB', 2: '80GiB', 3: '80GiB'},
+            "max_memory": {0: '20GiB', 1: '20GiB'},
+            # "max_memory": {0: '80GiB', 1: '80GiB', 2: '80GiB', 3: '80GiB'},
             # "max_memory": {1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB'},
             "device_map": "auto",
             "revision": "main",
@@ -287,11 +288,11 @@ class GraphLLM(torch.nn.Module):
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
                 use_cache=True,  # IMPORTANT: keep this as in G-Retriever
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+                # pad_token_id=self.tokenizer.pad_token_id,
+                # eos_token_id=self.tokenizer.eos_token_id,
             )
 
-        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
         
         return {
             'input': samples['input'],

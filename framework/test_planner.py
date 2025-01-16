@@ -5,7 +5,7 @@ import json
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import logging
-from models.graphllm import GraphLLM
+from framework.models.graphllm_pla_v2 import GraphLLM
 from train_planner import PlannerDataset
 from safetensors.torch import load_model
 

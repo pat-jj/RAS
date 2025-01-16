@@ -288,11 +288,11 @@ class GraphLLM(torch.nn.Module):
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
                 use_cache=True,  # IMPORTANT: keep this as in G-Retriever
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+                # pad_token_id=self.tokenizer.pad_token_id,
+                # eos_token_id=self.tokenizer.eos_token_id,
             )
 
-        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
         
         return {
             'input': samples['input'],

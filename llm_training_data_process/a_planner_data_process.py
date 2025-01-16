@@ -335,190 +335,197 @@ def load_processed_data(output_dir):
 
 
 def main():
-    # hotpotqa_main_data = load_hotpotqa_main_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/hotpot_with_subqueries.json')
-    print("Loading HotpotQA data ...")
-    hotpotqa_filtered_data, question_set, question_to_docs, question_to_subqueries = load_hotpotqa_filtered_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/filtered/hotpot_filtered.json')
-    q_direct_answered = load_hotpotqa_questions_can_be_directly_answered('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/subquery_classification.json')
-    q_retrieval_answered = load_hotpotqa_questions_can_be_answered_with_single_retrieval('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json')
-    text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json')
     
-    print("Loading SelfRAG data ...")
-    selfrag_data = load_selfrag_data('/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries_refined.json')
-    selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/selfrag_triples.json')
-    # selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/checkpoints/checkpoint_20250111_014347.json')
+    if os.path.exists(os.path.join(output_dir, 'train.pkl')):
+        print("Processed v1 data exists, make v2 data ...")
+        pass
     
-    print("Loading processed data ...")
-    output_dir = '/shared/eng/pj20/firas_data/action_planner/all_train'
-    processed_data = load_processed_data(output_dir)
     
-    processed_questions = set([item['input'] for item in processed_data]) if len(processed_data) > 0 else set()
-    
-    instruction = get_instruction()
-    
-    graph_processor = GraphProcessor()
-    
-    # P( [NO_Retrieval] or [SUBQ] q_0 | Q )
-    ## Case 0: The question can be answered with no retrieval
-    print("Processing Case 0: The question can be answered with no retrieval ...")
-    for item in tqdm(q_direct_answered):
-        if not item['needs_subquery'] and instruction + "\nQuestion: " + item['question'] not in processed_questions:
-            output = "[NO_RETRIEVAL]"
-            processed_item = {
-                'input': instruction + "\nQuestion: " + item['question'],
-                'label': output,
-                'graphs': [],
-            }
-            
-            processed_data.append(processed_item)
-            processed_questions.add(item['question'])
-             
-    ## Case 1: The question can be answered with retrieval by the question itself
-    # print("Processing Case 1: The question can be answered with retrieval by the question itself ...")
-    # for item in tqdm(q_retrieval_answered):
-    #     if item['question'] not in processed_questions:
-    #         if item['can_answer_with_retrieval']:
-    #             processed_item = {
-    #                 'input': instruction + "\n" + item['question'],
-    #                 'label': "[SUBQ]" + " " + item['question'],
-    #                 'graphs': [],
-    #             }
-    #             processed_data.append(processed_item)
-    #             processed_questions.add(item['question'])
-            
-    ## Case 2: The main question needs a subquery
-    print("Processing Case 2: The main question needs a subquery ...")
-    for item in tqdm(hotpotqa_filtered_data):
-        if instruction + "\nQuestion: " + item['question'] not in processed_questions and question_to_subqueries[item['question']] != []:
-            processed_item = {
-                'input': instruction + "\nQuestion: " + item['question'],
-                'label': "[SUBQ]" + " " + question_to_subqueries[item['question']][0],
-                'graphs': [],
-            }
-            processed_data.append(processed_item)
-            processed_questions.add(item['question'])
-            
-    # P([Sufficient] or [SUBQ q_(i+1)] | [KG] [SUBQ] q_0 + [Text(g_0)] … + [SUBQ] q_i + [Text(g_i)] + Q )
-    print("Processing HotpotQA main data ...")
-    skipped_questions = set()
-    for item in tqdm(hotpotqa_filtered_data):
-        question = item['question']
-        docs = question_to_docs[question]
-        subqueries = question_to_subqueries[question]
+    else:
+        # hotpotqa_main_data = load_hotpotqa_main_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/hotpot_with_subqueries.json')
+        print("Loading HotpotQA data ...")
+        hotpotqa_filtered_data, question_set, question_to_docs, question_to_subqueries = load_hotpotqa_filtered_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/filtered/hotpot_filtered.json')
+        q_direct_answered = load_hotpotqa_questions_can_be_directly_answered('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/subquery_classification.json')
+        q_retrieval_answered = load_hotpotqa_questions_can_be_answered_with_single_retrieval('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json')
+        text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json')
         
-        if len(docs) == 0 or len(subqueries) == 0:
-            skipped_questions.add(question)
-            continue
+        print("Loading SelfRAG data ...")
+        selfrag_data = load_selfrag_data('/shared/eng/pj20/firas_data/datasets/selfrag/selfrag_with_subqueries_refined.json')
+        selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/selfrag_triples.json')
+        # selfrag_text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/datasets/selfrag/generated_triples/checkpoints/checkpoint_20250111_014347.json')
         
-        try:
-            assert len(docs) == len(subqueries)
-        except Exception as e:
-            print(f"Error processing item {item['question']}: {e}")
+        print("Loading processed data ...")
+        output_dir = '/shared/eng/pj20/firas_data/action_planner/all_train'
+        processed_data = load_processed_data(output_dir)
         
-        try:
-            for i in range(len(docs)):
-                input_ = ""
-                for j in range(i):
-                    input_ += "[SUBQ] " + subqueries[j] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[j]]) + "\n"
-                input_ += "[SUBQ] " + subqueries[i] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[i]]) + "\n" + "Question: " + question
+        processed_questions = set([item['input'] for item in processed_data]) if len(processed_data) > 0 else set()
+        
+        instruction = get_instruction()
+        
+        graph_processor = GraphProcessor()
+        
+        # P( [NO_Retrieval] or [SUBQ] q_0 | Q )
+        ## Case 0: The question can be answered with no retrieval
+        print("Processing Case 0: The question can be answered with no retrieval ...")
+        for item in tqdm(q_direct_answered):
+            if not item['needs_subquery'] and instruction + "\nQuestion: " + item['question'] not in processed_questions:
+                output = "[NO_RETRIEVAL]"
+                processed_item = {
+                    'input': instruction + "\nQuestion: " + item['question'],
+                    'label': output,
+                    'graphs': [],
+                }
                 
-                if instruction + "\n" + input_ not in processed_questions:
-                    graphs = []
-                    for j in range(i):
-                        graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[j]])
-                        graphs.append(graph)
-                    graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[i]])
-                    graphs.append(graph)
+                processed_data.append(processed_item)
+                processed_questions.add(item['question'])
                 
-                    processed_item = {
-                        'input': instruction + "\n" + input_,
-                        'label': "[SUFFICIENT]" if i == len(docs) - 1 else "[SUBQ]" + " " + subqueries[i+1],
-                        'graphs': graphs,
-                    }
-                    processed_data.append(processed_item)
+        ## Case 1: The question can be answered with retrieval by the question itself
+        # print("Processing Case 1: The question can be answered with retrieval by the question itself ...")
+        # for item in tqdm(q_retrieval_answered):
+        #     if item['question'] not in processed_questions:
+        #         if item['can_answer_with_retrieval']:
+        #             processed_item = {
+        #                 'input': instruction + "\n" + item['question'],
+        #                 'label': "[SUBQ]" + " " + item['question'],
+        #                 'graphs': [],
+        #             }
+        #             processed_data.append(processed_item)
+        #             processed_questions.add(item['question'])
                 
-        except Exception as e:
-            skipped_questions.add(question)
-            print(f"Error processing item {item['question']}: {e}")
-            continue
-        
-    # Process SelfRAG data
-    print("Processing SelfRAG data ...")
-    for item in tqdm(selfrag_data):
-        if item['retrieval_type'] == 'no_retrieval' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
-            processed_item = {
-                'input': instruction + "\nQuestion: " + item['instruction'],
-                'label': "[NO_RETRIEVAL]",
-                'graphs': [],
-            }
-            processed_data.append(processed_item)
+        ## Case 2: The main question needs a subquery
+        print("Processing Case 2: The main question needs a subquery ...")
+        for item in tqdm(hotpotqa_filtered_data):
+            if instruction + "\nQuestion: " + item['question'] not in processed_questions and question_to_subqueries[item['question']] != []:
+                processed_item = {
+                    'input': instruction + "\nQuestion: " + item['question'],
+                    'label': "[SUBQ]" + " " + question_to_subqueries[item['question']][0],
+                    'graphs': [],
+                }
+                processed_data.append(processed_item)
+                processed_questions.add(item['question'])
+                
+        # P([Sufficient] or [SUBQ q_(i+1)] | [KG] [SUBQ] q_0 + [Text(g_0)] … + [SUBQ] q_i + [Text(g_i)] + Q )
+        print("Processing HotpotQA main data ...")
+        skipped_questions = set()
+        for item in tqdm(hotpotqa_filtered_data):
+            question = item['question']
+            docs = question_to_docs[question]
+            subqueries = question_to_subqueries[question]
             
-        elif item['retrieval_type'] == 'single_query' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
-            processed_item = {
-                'input': instruction + "\nQuestion: " + item['instruction'],
-                'label': "[SUBQ]" + " " + item['main_query'],
-                'graphs': [],
-            }
-            processed_data.append(processed_item)
-            
-        elif item['retrieval_type'] == 'multiple_queries':
-            subquery_docs = {d['sub_query'] : d['supporting_doc'] for d in item['sub_queries']}
+            if len(docs) == 0 or len(subqueries) == 0:
+                skipped_questions.add(question)
+                continue
             
             try:
-                for i in range(len(item['sub_queries'])):
+                assert len(docs) == len(subqueries)
+            except Exception as e:
+                print(f"Error processing item {item['question']}: {e}")
+            
+            try:
+                for i in range(len(docs)):
                     input_ = ""
                     for j in range(i):
-                        input_ += "[SUBQ] " + item['sub_queries'][j]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]]) + "\n"
-                    input_ += "[SUBQ] " + item['sub_queries'][i]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]]) + "\n" + "Question: " + item['instruction']
-
+                        input_ += "[SUBQ] " + subqueries[j] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[j]]) + "\n"
+                    input_ += "[SUBQ] " + subqueries[i] + "\n" + "Retrieved Graph Information: " + str(text_to_triples[docs[i]]) + "\n" + "Question: " + question
+                    
                     if instruction + "\n" + input_ not in processed_questions:
                         graphs = []
                         for j in range(i):
-                            graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]])
+                            graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[j]])
                             graphs.append(graph)
-                        graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]])
+                        graph, triples = graph_processor.create_graph_from_triples(text_to_triples[docs[i]])
                         graphs.append(graph)
-                        
+                    
                         processed_item = {
                             'input': instruction + "\n" + input_,
-                            'label': "[SUFFICIENT]" if i == len(item['sub_queries']) - 1 else "[SUBQ]" + " " + item['sub_queries'][i+1]['sub_query'],
+                            'label': "[SUFFICIENT]" if i == len(docs) - 1 else "[SUBQ]" + " " + subqueries[i+1],
                             'graphs': graphs,
                         }
                         processed_data.append(processed_item)
+                    
             except Exception as e:
-                print(f"Error processing item {item['instruction']}: {e}")
+                skipped_questions.add(question)
+                print(f"Error processing item {item['question']}: {e}")
                 continue
-    
             
-    print("Processed data length: ", len(processed_data))
-    print("Skipped questions: ", len(skipped_questions))
-    # Save processed data
-    print(f"Saving {len(processed_data)} processed examples...")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Randomly split into train, val, test
-    random.shuffle(processed_data)
-    train_data = processed_data[:int(len(processed_data)*0.98)]
-    val_data = processed_data[int(len(processed_data)*0.98):int(len(processed_data)*0.99)]
-    test_data = processed_data[int(len(processed_data)*0.99):]
-    
-    # Save using pickle
-    print(f"Saving {len(train_data)} train examples...")
-    with open(os.path.join(output_dir, 'train.pkl'), 'wb') as f:
-        pickle.dump(train_data, f)
+        # Process SelfRAG data
+        print("Processing SelfRAG data ...")
+        for item in tqdm(selfrag_data):
+            if item['retrieval_type'] == 'no_retrieval' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
+                processed_item = {
+                    'input': instruction + "\nQuestion: " + item['instruction'],
+                    'label': "[NO_RETRIEVAL]",
+                    'graphs': [],
+                }
+                processed_data.append(processed_item)
+                
+            elif item['retrieval_type'] == 'single_query' and instruction + "\nQuestion: " + item['instruction'] not in processed_questions:
+                processed_item = {
+                    'input': instruction + "\nQuestion: " + item['instruction'],
+                    'label': "[SUBQ]" + " " + item['main_query'],
+                    'graphs': [],
+                }
+                processed_data.append(processed_item)
+                
+            elif item['retrieval_type'] == 'multiple_queries':
+                subquery_docs = {d['sub_query'] : d['supporting_doc'] for d in item['sub_queries']}
+                
+                try:
+                    for i in range(len(item['sub_queries'])):
+                        input_ = ""
+                        for j in range(i):
+                            input_ += "[SUBQ] " + item['sub_queries'][j]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]]) + "\n"
+                        input_ += "[SUBQ] " + item['sub_queries'][i]['sub_query'] + "\n" + "Retrieved Graph Information: " + str(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]]) + "\n" + "Question: " + item['instruction']
+
+                        if instruction + "\n" + input_ not in processed_questions:
+                            graphs = []
+                            for j in range(i):
+                                graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][j]['sub_query']]])
+                                graphs.append(graph)
+                            graph, triples = graph_processor.create_graph_from_triples(selfrag_text_to_triples[subquery_docs[item['sub_queries'][i]['sub_query']]])
+                            graphs.append(graph)
+                            
+                            processed_item = {
+                                'input': instruction + "\n" + input_,
+                                'label': "[SUFFICIENT]" if i == len(item['sub_queries']) - 1 else "[SUBQ]" + " " + item['sub_queries'][i+1]['sub_query'],
+                                'graphs': graphs,
+                            }
+                            processed_data.append(processed_item)
+                except Exception as e:
+                    print(f"Error processing item {item['instruction']}: {e}")
+                    continue
         
-    print(f"Saving {len(val_data)} val examples...")
-    with open(os.path.join(output_dir, 'val.pkl'), 'wb') as f:
-        pickle.dump(val_data, f)
+                
+        print("Processed data length: ", len(processed_data))
+        print("Skipped questions: ", len(skipped_questions))
+        # Save processed data
+        print(f"Saving {len(processed_data)} processed examples...")
+        os.makedirs(output_dir, exist_ok=True)
         
-    print(f"Saving {len(test_data)} test examples...")
-    with open(os.path.join(output_dir, 'test.pkl'), 'wb') as f:
-        pickle.dump(test_data, f)
-    
-    # Save a few examples for inspection
-    example_file = os.path.join(output_dir, 'examples.json')
-    with open(example_file, 'w') as f:
-        json.dump(processed_data[:5], f, indent=2, default=str)
-    print(f"Saved 5 examples to {example_file} for inspection")
+        # Randomly split into train, val, test
+        random.shuffle(processed_data)
+        train_data = processed_data[:int(len(processed_data)*0.98)]
+        val_data = processed_data[int(len(processed_data)*0.98):int(len(processed_data)*0.99)]
+        test_data = processed_data[int(len(processed_data)*0.99):]
+        
+        # Save using pickle
+        print(f"Saving {len(train_data)} train examples...")
+        with open(os.path.join(output_dir, 'train.pkl'), 'wb') as f:
+            pickle.dump(train_data, f)
+            
+        print(f"Saving {len(val_data)} val examples...")
+        with open(os.path.join(output_dir, 'val.pkl'), 'wb') as f:
+            pickle.dump(val_data, f)
+            
+        print(f"Saving {len(test_data)} test examples...")
+        with open(os.path.join(output_dir, 'test.pkl'), 'wb') as f:
+            pickle.dump(test_data, f)
+        
+        # Save a few examples for inspection
+        example_file = os.path.join(output_dir, 'examples.json')
+        with open(example_file, 'w') as f:
+            json.dump(processed_data[:5], f, indent=2, default=str)
+        print(f"Saved 5 examples to {example_file} for inspection")
     
     
 if __name__ == "__main__":
