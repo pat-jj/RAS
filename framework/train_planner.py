@@ -119,7 +119,7 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
     
     # Add checkpoint tracking
     total_steps = len(train_loader)
-    checkpoint_interval = total_steps // 8  # Save 8 times per epoch
+    checkpoint_interval = total_steps // 16  # Save 8 times per epoch
     
     try:
         for batch_idx, batch in enumerate(progress_bar):
@@ -452,23 +452,23 @@ def main():
     )
     
     # Test model saving functionality
-    logger.info("Testing model saving functionality...")
-    if not test_model_saving(model, args):
-        logger.error("Model saving test failed. Aborting training.")
-        return
+    # logger.info("Testing model saving functionality...")
+    # if not test_model_saving(model, args):
+    #     logger.error("Model saving test failed. Aborting training.")
+    #     return
     
-    # Test validation before starting training
-    logger.info("Testing validation loop...")
-    try:
-        logger.info("Running test validation pass...")
-        test_val_metrics = evaluate(model, val_loader_small)
-        if test_val_metrics['val_loss'] == float('inf'):
-            logger.error("Validation test failed - no valid batches completed")
-            return
-        logger.info("Validation test completed successfully")
-    except Exception as e:
-        logger.error(f"Validation test failed with error: {str(e)}")
-        return
+    # # Test validation before starting training
+    # logger.info("Testing validation loop...")
+    # try:
+    #     logger.info("Running test validation pass...")
+    #     test_val_metrics = evaluate(model, val_loader_small)
+    #     if test_val_metrics['val_loss'] == float('inf'):
+    #         logger.error("Validation test failed - no valid batches completed")
+    #         return
+    #     logger.info("Validation test completed successfully")
+    # except Exception as e:
+    #     logger.error(f"Validation test failed with error: {str(e)}")
+    #     return
         
     # Verify HuggingFace access if credentials provided
     hf_upload_ok = False

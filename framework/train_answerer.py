@@ -119,7 +119,7 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
     
     # Add checkpoint tracking
     total_steps = len(train_loader)
-    checkpoint_interval = total_steps // 8  # Save 8 times per epoch
+    checkpoint_interval = total_steps // 16  # Save 16 times per epoch
     
     try:
         for batch_idx, batch in enumerate(progress_bar):

@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from utils import load_file, TASK_INST, PROMPT_DICT, save_file_jsonl, process_arc_instruction, postprocess_answers_closed
-from metrics import metric_max_over_ground_truths, exact_match_score, match
+from metrics import metric_max_over_ground_truths, exact_match_score, match, f1_score
 import ast
 from claude_api import get_claude_response
 import queue
@@ -89,10 +89,19 @@ def main():
     # print(f"Using {len(input_data)} random samples")
 
     # For baseline scripts, we simply load pre-retrieved documents from `retrieval_file` option.
-    if args.task == "asqa":
+    if "asqa" in args.task:
         for id, item in enumerate(input_data):
             item["ctxs"] = item["docs"]
-            
+    
+    input_data_ = []
+    if "2wikimultihop" in args.input_file:
+        for i in range(len(input_data['question'])):
+            context_list = []
+            for j in range(len(input_data['context'][i])):
+                context_list.append(input_data['context'][i][j][0])
+            input_data_.append({"question": input_data['question'][i], "ctxs": context_list, "answers": input_data['answer'][i]})
+        input_data = input_data_[:1000]
+    
     if args.mode == "retrieval":
         if args.retrieval_file is not None:
             retrieval_data = load_file(args.retrieval_file)
@@ -107,14 +116,27 @@ def main():
                 evidences = ["[{}] ".format(
                     i+1) + ctx["title"]+"\n" + ctx["text"] for i, ctx in enumerate(retrieval_result)]
                 item["paragraph"] = "\n".join(evidences)
-        else:
+        elif "2wikimultihop" not in args.input_file:
             print("Using top {} documents".format(args.top_n))
             for id, item in enumerate(input_data):
                 retrieval_result = item["ctxs"][:args.top_n]
                 evidences = ["[{}] ".format(
                     i+1) + ctx["title"]+"\n" + ctx["text"] for i, ctx in enumerate(retrieval_result)]
                 item["paragraph"] = "\n".join(evidences)
-
+        else:
+            for id, item in enumerate(input_data):
+                retrieval_result = item["ctxs"][:args.top_n]
+                evidences = ["[{}] ".format(
+                    i+1) + ctx for i, ctx in enumerate(retrieval_result)]
+                item["paragraph"] = "\n".join(evidences)
+                
+    if "asqa" in args.mode:
+        for id, item in enumerate(input_data):
+            retrieval_result = item["ctxs"][:args.top_n]
+            evidences = ["Document [{}]".format(
+                i+1) + "(Title: {}): {}".format(ctx["title"], ctx["text"]) for i, ctx in enumerate(retrieval_result)]
+            item["paragraph"] = "\n".join(evidences)
+            
     for item in input_data:
         if "golds" not in item:
             if "output" in item:
@@ -128,8 +150,11 @@ def main():
             if "answerKey" in item:
                 item["golds"] = [item["answerKey"]]
 
-        if "instruction" not in item and "question" in item:
-            item["instruction"] = item["question"]
+        if args.task == "factscore":
+            item["instruction"] = item["input"]
+        else:
+            if "instruction" not in item and "question" in item:
+                item["instruction"] = item["question"]
 
         if args.instruction is not None:
             item["instruction"] = args.instruction + \
@@ -139,10 +164,9 @@ def main():
                 "\n\n### Input:\n" + item["instruction"]
         if args.task == "arc_c":
             item["instruction"] = process_arc_instruction(item, TASK_INST[args.task])
-        if args.task == "asqa":
-            item["instruction"] = TASK_INST[args.task] + \
-                "\n\n### Input:\n" + item["instruction"]
-
+        if "asqa" in args.task:
+            item["instruction"] = TASK_INST[args.task] + item["question"]
+                
     # Process all items in larger batches for better throughput
     batch_size = max(args.batch_size, 32)  # Use larger batches
     final_results = []
@@ -166,7 +190,7 @@ def main():
             pbar.update(len(batch))
     
     # Calculate metrics
-    if args.task != "asqa":
+    if "asqa" not in args.task:
         for item in input_data:
             if args.metric == "em":
                 metric_result = metric_max_over_ground_truths(
@@ -177,6 +201,10 @@ def main():
                 metric_result = match(item["output"], item["golds"])
             elif args.task == "factscore":
                 metric_result = 0.0
+                
+            elif args.metric == "f1":
+                metric_result = f1_score(item["output"], item["golds"])
+                
             else:
                 raise NotImplementedError
             item["metric_result"] = metric_result
@@ -191,7 +219,7 @@ def main():
             processed_item.append(item)
         save_file_jsonl(processed_item, args.result_fp)
         
-    elif args.task == "asqa":
+    elif "asqa" in args.task:
         processed_item = []
         for item in input_data:
             processed_item.append(item)

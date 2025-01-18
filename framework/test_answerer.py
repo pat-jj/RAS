@@ -90,6 +90,10 @@ def main():
     parser.add_argument('--max_txt_len', type=int, default=2500)
     parser.add_argument('--max_new_tokens', type=int, default=300)
     
+    
+    parser.add_argument('--lora_r', type=int, default=8)
+    parser.add_argument('--lora_alpha', type=int, default=16)
+    parser.add_argument('--lora_dropout', type=float, default=0.05)
     # Test specific arguments
     parser.add_argument('--checkpoint_path', type=str, required=True,
                         help='Path to model checkpoint')
@@ -112,7 +116,7 @@ def main():
     # Load test dataset
     logger.info("Loading test dataset...")
     test_dataset_small = AnswererDataset(args.test_data_path)
-    test_dataset_small = torch.utils.data.Subset(test_dataset_small, range(100))
+    # test_dataset_small = torch.utils.data.Subset(test_dataset_small, range(100))
     
     # Create test dataloader
     test_loader = DataLoader(
