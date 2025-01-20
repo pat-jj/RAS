@@ -12,3 +12,6 @@ common
 llm_tune
 FActScore
 ALCE
+FActScore_
+triple_gen.py
+eval_.ipynb

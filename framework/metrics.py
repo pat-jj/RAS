@@ -12,6 +12,12 @@ import mauve
 def exact_match_score(prediction, ground_truth):
     return (normalize_answer(prediction) == normalize_answer(ground_truth))
 
+def exact_match(predictions, ground_truths):
+    scores = []
+    for prediction, ground_truth in zip(predictions, ground_truths):
+        scores.append(exact_match_score(prediction, ground_truth))
+    return np.mean(scores)
+
 def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     scores_for_ground_truths = []
     for ground_truth in ground_truths:
@@ -41,6 +47,7 @@ def accuracy(preds, labels):
 #             f1_all.append(qa_f1_score(prediction, answers))
 #     return 100 * np.mean(f1_all)
 
+# from RPG (https://github.com/haruhi-sudo/RPG/blob/main/retriever/src/evaluation.py)
 def f1(prediction, ground_truth):
     prediction_tokens = normalize_answer(prediction).split()
     ground_truth_tokens = normalize_answer(ground_truth).split()
@@ -106,33 +113,35 @@ def match(prediction, ground_truth):
     return 0
 
 
-# import copy
-# import json
-# from metrics import *
-# from utils import *
-# from sentence_transformers import SentenceTransformer
-# import torch.nn.functional as F
+import copy
+import json
+from metrics import *
+from utils import *
+from sentence_transformers import SentenceTransformer
+import torch.nn.functional as F
 
-# # Load the sentence transformer model
-# model = SentenceTransformer('sentence-transformers/all-roberta-large-v1')
+# Load the sentence transformer model
+model = SentenceTransformer('sentence-transformers/all-roberta-large-v1')
 
-# def cosine_match(output, golds, threshold=0.65):
+def cosine_match(output, golds, threshold=0.63):
     
-#     # first filter the matched
-#     if match(output, golds):
-#         return 1
-#     output = normalize_answer(output)
-#     golds = [normalize_answer(g) for g in golds]
-#     # Get embeddings for output and all gold answers
-#     output_emb = model.encode(output, convert_to_tensor=True)
-#     gold_embs = model.encode(golds, convert_to_tensor=True)
+    # first filter the matched
+    if match(output, golds):
+        return 1, False
     
-#     # Calculate cosine similarities
-#     similarities = F.cosine_similarity(output_emb.unsqueeze(0), gold_embs)
+    output = normalize_answer(output)
+    golds = [normalize_answer(g) for g in golds]
+    # Get embeddings for output and all gold answers
+    output_emb = model.encode(output, convert_to_tensor=True)
+    gold_embs = model.encode(golds, convert_to_tensor=True)
     
-#     # Check if any similarity exceeds threshold
-#     max_similarity = similarities.max().item()
-#     return 1 if max_similarity >= threshold else 0
+    # Calculate cosine similarities
+    similarities = F.cosine_similarity(output_emb.unsqueeze(0), gold_embs)
+    
+    # Check if any similarity exceeds threshold
+    max_similarity = similarities.max().item()
+    add = True if max_similarity >= threshold else False
+    return 1 if max_similarity >= threshold else 0, add
 
 
 

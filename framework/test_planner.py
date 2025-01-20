@@ -5,9 +5,10 @@ import json
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import logging
-from framework.models.graphllm_pla_v2 import GraphLLM
+from models.graphllm_pla_v2 import GraphLLM
 from train_planner import PlannerDataset
 from safetensors.torch import load_model
+from train_planner import improved_collate_fn
 
 def setup_logging():
     """Setup logging configuration"""
@@ -46,14 +47,13 @@ def run_inference(model, test_loader):
                 for i in range(len(outputs['input'])):
                     result = {
                         'input': outputs['input'][i],
-                        'prediction': outputs['pred'][i],
+                        'prediction': outputs['pred'][i].split("</s>")[0],
                         'label': outputs['label'][i]
                     }
                     all_results.append(result)
                     print(f"INPUT: {outputs['input'][i]}")
-                    print(f"PREDICTION: {outputs['pred'][i]}")
+                    print(f"PREDICTION: {outputs['pred'][i].split('</s>')[0]}")
                     print(f"LABEL: {outputs['label'][i]}")
-                    print("-" * 80)  # Separator for readability
                     
             except Exception as e:
                 logging.error(f"Error during inference: {str(e)}")
@@ -73,19 +73,23 @@ def save_results(results, output_path):
 def main():
     parser = argparse.ArgumentParser()
     # Model arguments (must match training arguments)
-    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Meta-Llama-3-8B')
+    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Llama-2-7b-hf')
     parser.add_argument('--llm_frozen', type=str, default='False')
-    parser.add_argument('--finetune_method', type=str, default='full')
+    parser.add_argument('--finetune_method', type=str, default='lora')
     parser.add_argument('--gnn_model_name', type=str, default='gt')
     parser.add_argument('--gnn_in_dim', type=int, default=1024)
     parser.add_argument('--gnn_hidden_dim', type=int, default=1024)
     parser.add_argument('--gnn_num_layers', type=int, default=3)
     parser.add_argument('--gnn_dropout', type=float, default=0.1)
     parser.add_argument('--gnn_num_heads', type=int, default=8)
-    parser.add_argument('--max_txt_len', type=int, default=1500)
-    parser.add_argument('--max_new_tokens', type=int, default=128)  
+    parser.add_argument('--max_txt_len', type=int, default=2500)
+    parser.add_argument('--max_new_tokens', type=int, default=150)  
     
     # Test specific arguments
+    parser.add_argument('--lora_r', type=int, default=8)
+    parser.add_argument('--lora_alpha', type=int, default=16)
+    parser.add_argument('--lora_dropout', type=float, default=0.05)
+    
     parser.add_argument('--checkpoint_path', type=str, required=True,
                         help='Path to model checkpoint')
     parser.add_argument('--test_data_path', type=str, required=True,
@@ -111,20 +115,17 @@ def main():
     test_dataset_small = torch.utils.data.Subset(test_dataset, range(args.num_test_samples))
     
     # Create test dataloader
-    test_loader = DataLoader(
+    test_loader_small = DataLoader(
         test_dataset_small,
         batch_size=args.batch_size,
         shuffle=False,
-        collate_fn=lambda x: {
-            'input': [item['input'] for item in x],
-            'label': [item['label'] for item in x],
-            'graphs': [item['graphs'] for item in x]
-        }
+        drop_last=True,
+        collate_fn=improved_collate_fn
     )
     
     # Run inference
     logger.info("Running inference...")
-    results = run_inference(model, test_loader)
+    results = run_inference(model, test_loader_small)
     
     # Save results
     logger.info("Saving results...")

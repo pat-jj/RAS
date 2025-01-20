@@ -34,11 +34,20 @@ PROMPT_DICT = {
     ),
     "asqa_base": (
         "{instruction}\nAnswer: "
-    )
+    ),
+    "eli5_base": (
+        "{instruction}\nAnswer: "
+    ),
+    "eli5_ret": (
+        "{instruction}\n\n{paragraph}\n\nAnswer: "
+    ),
+    "2wikimultihop_ret": (
+        "{instruction}\n\n{paragraph}\n\nAnswer: "
+    ),
 }
 
 
-ALCE_2_SHOT_INST_BASE ="""Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question. Use an unbiased and journalistic tone. Follow the writing style and length of the answers shown in the examples.
+ALCE_2_SHOT_INST_BASE ="""Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question. Use an unbiased and journalistic tone. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
 
 Question: Which is the most rainy place on earth?
 Answer: Several places on Earth claim to be the most rainy, such as Lloró, Colombia, which reported an average annual rainfall of 12,717 mm between 1952 and 1989, and López de Micay, Colombia, which reported an annual 12,892 mm between 1960 and 2012. However, the official record is held by Mawsynram, India with an average annual rainfall of 11,872 mm, although nearby town Sohra, India, also known as Cherrapunji, holds the record for most rain in a calendar month for July 1861 and most rain in a year from August 1860 to July 1861.
@@ -51,7 +60,7 @@ Question: """
 
 ALCE_2_SHOT_INST = """You are a helpful assistant that answers the following questions with proper citations.
 
-Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite AT LEAST ONE document and AT MOST THREE documents in EACH sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents. Do not output anything else (e.g. "Based on the search results..."). Follow the writing style (one paragraph of one or more sentences) of the answers shown in the examples.
+Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite AT LEAST ONE document and AT MOST THREE documents in EACH sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
 
 
 Example 1:
@@ -82,6 +91,54 @@ Your turn:
 Question: """
 
 
+ELI5_2_SHOT_INST_BASE = """Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question. Use an unbiased and journalistic tone. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+Question: Why did New York City try to ban food donations to the poor?
+Answer: New York City, under Mayor Michael Bloomberg's administration, banned citizens from donating food directly to homeless shelters because the city could not assess the salt, fat, and fiber content. Bloomberg's administration was heavily criticized for losing their common sense by becoming too focused on what people eat.
+
+Question: What's the difference between Shia vs. Sunni Islam?
+Answer: The main difference between Shia and Sunni Muslim is related to ideological heritage and issues of leadership. This difference is first formed after the death of the Prophet Muhammad in 632 A.D. The ideological practice of the Sunni branch strictly follows Prophet Muhammad and his teachings, while the Shia branch follows Prophet Muhammad's son-in-law Ali. Nowadays, Sunni and Shia are the major branches of Islam.
+
+Question: """
+
+
+
+ELI5_2_SHOT_INST = """You are a helpful assistant that answers the following questions with proper citations.
+
+Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite AT LEAST ONE document and AT MOST THREE documents in EACH sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents. Follow the writing style (one paragraph of one or more sentences) of the answers shown in the examples. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+
+Example 1:
+Question: Why did New York City try to ban food donations to the poor?
+
+Document [1]: believe that they are \u201chelping\u201d the homeless by passing such laws. In New York City, Mayor Bloomberg has banned citizens from donating food directly to homeless shelters and he is actually convinced that it was the right thing to do for the homeless\u2026 Mayor Michael Bloomberg\u2019s food police have struck again! Outlawed are food donations to homeless shelters because the city can\u2019t assess their salt, fat and fiber content, reports CBS 2\u2019s Marcia Kramer. Glenn Richter arrived at a West Side synagogue on Monday to collect surplus bagels \u2014 fresh nutritious bagels \u2014 to donate to the poor..
+Document [2]: muck: Bloomberg Bans Food Donations in New York City Food Might Be Salty or Too High in Calories, City Explains Washington, D.C. \u2013 New York Mayor Michael Bloomberg\u2019s administration is now banning all food being offered to the city\u2019s homeless shelters. New York City\u2019s bureaucrats have become so singularly focused on what people eat, says the National Center for Public Policy Research, that they\u2019ve lost their common sense. \u201cSo much for serving the homeless: The Bloomberg administration is now taking the term \u2018food police\u2019 to new depths, blocking food donations to all government-run facilities that serve the
+Document [3]: New York City bans food donations - WND Front Page Health U.S. New York City bans food donations Inability to control 'nutritional content' cited as reason New York City homeless shelters have Mayor Michael Bloomberg to thank for a halt in food donations, for which hungry families are waiting, according to one public policy advocate. \"The Bloomberg administration is now taking the term 'food police' to new depths, blocking food donations to all government-run facilities that serve the city's homeless,\" says Jeff Stier, a National Center for Public Policy Research senior fellow. Currently, no food can be given to government-run, New York City facilities, despite hungry crowds perfectly
+Document [4]: New York City bans food donations - WND Services didn't return WND calls. Stier told WND that he specifically was told by Diamond that the policy was tied to the nutritional guidelines set by the mayor. \"They can say that this ban on donations is a long-standing policy, but they can\u2019t document it,\" Stier told WND. \"I've also been told that there are numerous food shelves that have been accepting food donations, not just one.\" Stier is a member of a New York Synagogue that has donated food for over a decade. He is outraged that the DHS' response to his demand to know why the practice can
+Document [5]: New York City bans food donations - WND ban on donated food. In fact, it thrives because of food donations. New York City Rescue Mission has been providing food, clothing, shelter and spiritual hope for needy New Yorkers since 1872. \"We feed over 500 people a day, all through donations,\" said James Varnhagen, NYCRM director. \"Boxed food, canned food, prepared food, we take any food,\" he told WND. \"We couldn't survive without donations,\" he said.
+
+Answer: New York City, under Mayor Michael Bloomberg's administration, banned citizens from donating food directly to homeless shelters because the city could not assess the salt, fat, and fiber content [1][2][3]. Bloomberg's administration was heavily criticized for losing their common sense by becoming too focused on what people eat [2].
+
+
+Example 2:
+Question: What's the difference between Shia vs. Sunni Islam?
+
+Document [1]: centuries-long strained relationship between Sunnis and Shias. As a scholar of Islam and a public educator, I often field questions about Sunnis, Shias and the sects of Islam. What exactly is the Shia-Sunni divide? And what is its history? History of divide Both Sunnis and Shias \u2013 drawing their faith and practice from the Qur\u2019an and the life of the Prophet Muhammad \u2013 agree on most of the fundamentals of Islam. The differences are related more to historical events, ideological heritage and issues of leadership. The first and central difference emerged after the death of Prophet Muhammad in A.D. 632.
+Document [2]: What\u2019s the difference between Sunni and Shia Islam? Sunni and Shia identities (the 2 main branches of Islam) first formed around a dispute over leadership succession after the death of the Prophet Muhammad in 632 A.D. Sunni is the larger branch (estimated 85-90% of total world Muslim population) and it's adherents are referred to as \"people of the tradition of Muhammad\", while Shia are \"followers\" of Muhammad's son-in-law and cousin Ali. Sunnis rely heavily on the practice of the Prophet Muhammad and his teachings, the Shia view their ayatollahs as reflections of God on earth. What challenges does the anti-IS
+Document [3]: of Muhammad, the last prophet of God. A follower of Islam is known as a Muslim. Many Muslims believe that their sole purpose is to worship and serve God, for which they have established five pillars of Islam that guides a Muslim on almost every aspect of life and society. Due to differences, Muslims have been divided into two primary sects: The Sunnis and the Shias. These two sects have many similarities and both consider themselves are Muslims, following the will of God. However, they are also different from each other in certain aspects. Both the Sunnis and the Shias
+Document [4]: What is the difference between Shia and Sunni Islam? - Islam Stack Exchange between Mutah marriage and Misyar marriage? What theological and historical factors distinguish Ibadi Islam from either Shia or Sunni schools? What are the principle/fundamental differences between Sunni and Shia? Nikah between a Sunni girl and Shia boy What is the difference between \u201cMubtalat-of-Wudu\u201d of Shia and Sunni? How can the Hadith be reliable when Sunnis and Shia follow different points of reference? Rejection of Mutawatir Hadith in Sunni Islam and Shia Islam
+Document [5]: What is the difference between Sunni and Shia Islam? | Patrick Syder Travel What is the difference between Sunni and Shia Islam? This Channel 4 link answers some of the key questions about the difference between Sunni and Shia Islam and alarmingly, the politics on what is happening and why, in Syria\u2026\u2026. http://www.channel4.com/news/sunni-shia-islam-muslim-syria-middle-east-key-questions \u2190 Ethiopia Appeal \u2013 Help sponsor a nurse to train and to help others G\u00f6bekli Tepe, Turkey: a new wonder of the ancient world by Jeremy Seal (Telegraph Travel Section 23/04/2013) \u2192
+
+Answer: The main difference between Shia and Sunni Muslim is related to ideological heritage and issues of leadership [1]. This difference is first formed after the death of the Prophet Muhammad in 632 A.D. [1][2]. The ideological practice of the Sunni branch strictly follows Prophet Muhammad and his teachings, while the Shia branch follows Prophet Muhammad's son-in-law Ali [2]. Nowadays, Sunni and Shia are the major branches of Islam [3].
+
+
+Your turn:
+Question: """
+
+
+
+
+
 TASK_INST = {"wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
              "fever": "Is the following statement correct or not? Say true if it's correct; otherwise say false in lowercase. Do not say anything else, and only output true or false.",
              "eli5": "Provide a paragraph-length response using simple words to answer the following question.",
@@ -91,7 +148,10 @@ TASK_INST = {"wow": "Given a chat history separated by new lines, generates an i
              "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
              "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers.",
              "asqa_ret": ALCE_2_SHOT_INST,
-             "asqa_base": ALCE_2_SHOT_INST_BASE
+             "asqa_base": ALCE_2_SHOT_INST_BASE,
+             "eli5_ret": ELI5_2_SHOT_INST,
+             "eli5_base": ELI5_2_SHOT_INST_BASE,
+             "2wikimultihop": "Answer the following question. Just output the answer (even if you are not sure), do not say anything else."
              }
 
 

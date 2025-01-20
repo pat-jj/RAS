@@ -35,7 +35,8 @@ Example Output:
 (S> William gerald standridge| P> Birth date| O> November 27, 1953),
 (S> William gerald standridge| P> Death date| O> April 12, 2014)
 
-Input Text: {text}
+Input Text: 
+{text}
 
 """
 
@@ -48,8 +49,8 @@ Input Text: {text}
 
 def planner_sonnet(planner_intput):
     planner_instruction = """You are a planner to determine if the question can be answered with current information (Subquery [PREV_SUBQ] and retrieved graph information [PREV_GRAPH_INFO]) and output the appropriate label as well as the subquery if needed.
-Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval. You are expected to output [NO_RETRIEVAL] either if you believe you are knowledgeable enough to answer the question, or if you believe the question type is not suitable for retrieval.
-Output [SUBQ] with an subquery for retrieval if still needs a subquery. Do not make an identical subquery that has been made before ([PREV_SUBQ]), try to make a new subquery creatively to retrieve helpful information.
+Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval. You are expected to output [NO_RETRIEVAL] either if you believe an LLM is knowledgeable enough to answer the question, or if you believe the question type is not suitable for retrieval.
+Output [SUBQ] with an subquery for retrieval if still needs a subquery. Do not make an similar subquery that has been made before ([PREV_SUBQ]), as it is very likely to retrieve the same information.
 Output [SUFFICIENT] if the question can be answered with the provided information.
 The main question starts with "Question: ".
 """
@@ -131,6 +132,7 @@ def answerer_sonnet(answerer_input, max_answer_length=100):
     answerer_instruction = """You are a answerer given a question and retrieved graph information.
 Each [SUBQ] is a subquery we generated through reasoning for the question. The retrieved graph information follows each [SUBQ] is relevant graph information we retrieved to answer the subquery.
 The main question starts with "Question: ". Please answer the question, with subqueries and retrieved graph information if they are helpful (do not use them if they are not helpful).
+You must answer the question, even if there's no enough information to answer the question, or you are not sure about the answer.
 """
     
     

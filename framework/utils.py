@@ -170,7 +170,7 @@ class GraphProcessor:
             edge_attr=edge_features
         )
         
-        return graph
+        return graph, triple_strs 
     
 
 
@@ -245,8 +245,23 @@ PROMPT_DICT = {
 }
 
 # in ALCE's official github repo (https://github.com/princeton-nlp/ALCE/blob/main/prompts/asqa_default.json)
-ALCE_2_SHOT_INST = """Instruction: Write an accurate, engaging, and concise answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite at least one document and at most three documents in each sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents.
+ALCE_2_SHOT_INST_BASE ="""Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question. Use an unbiased and journalistic tone. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
 
+Question: Which is the most rainy place on earth?
+Answer: Several places on Earth claim to be the most rainy, such as Lloró, Colombia, which reported an average annual rainfall of 12,717 mm between 1952 and 1989, and López de Micay, Colombia, which reported an annual 12,892 mm between 1960 and 2012. However, the official record is held by Mawsynram, India with an average annual rainfall of 11,872 mm, although nearby town Sohra, India, also known as Cherrapunji, holds the record for most rain in a calendar month for July 1861 and most rain in a year from August 1860 to July 1861.
+
+Question: When did the us break away from england?
+Answer: The United States took the first step towards gaining independence from Great Britain when it declared independence from Great Britain on July 2, 1776 (although the event is now commemorated on July 4, 1776, the date when the Declaration of Independence was officially adopted by Congress). The Treaty of Paris was later signed on September 3, 1783, formally separating the United States from the British Empire.
+
+Question: """
+
+
+ALCE_2_SHOT_INST = """You are a helpful assistant that answers the following questions with proper citations.
+
+Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite AT LEAST ONE document and AT MOST THREE documents in EACH sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+
+Example 1:
 Question: Which is the most rainy place on earth?
 
 Document [1](Title: Cherrapunji): Cherrapunji Cherrapunji (; with the native name Sohra being more commonly used, and can also be spelled Cherrapunjee or Cherrapunji) is a subdivisional town in the East Khasi Hills district in the Indian state of Meghalaya. It is the traditional capital of aNongkhlaw \"hima\" (Khasi tribal chieftainship constituting a petty state), both known as Sohra or Churra. Cherrapunji has often been credited as being the wettest place on Earth, but for now nearby Mawsynram currently holds that distinction. Cherrapunji still holds the all-time record for the most rainfall in a calendar month for July 1861 and most rain in a year from August 1860 to July 1861, however: it received in
@@ -258,8 +273,7 @@ Document [5](Title: Going to Extremes): in the world. Oymyakon in Siberia, where
 Answer: Several places on Earth claim to be the most rainy, such as Lloró, Colombia, which reported an average annual rainfall of 12,717 mm between 1952 and 1989, and López de Micay, Colombia, which reported an annual 12,892 mm between 1960 and 2012 [3]. However, the official record is held by Mawsynram, India with an average annual rainfall of 11,872 mm [3], although nearby town Sohra, India, also known as Cherrapunji, holds the record for most rain in a calendar month for July 1861 and most rain in a year from August 1860 to July 1861 [1].
 
 
-Instruction: Write an accurate, engaging, and concise answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite at least one document and at most three documents in each sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents.
-
+Example 2:
 Question: When did the us break away from england?
 
 Document [1](Title: United States withdrawal from Saudi Arabia): United States withdrawal from Saudi Arabia Beginning during Operation Desert Shield in August 1990, while preparing for the Gulf War, the United States sent a large troop contingent to Saudi Arabia. After the war, remnant troops, primarily U.S. Air Force personnel, augmented by a smaller number of coordinating and training personnel from the U.S. Navy, U.S. Army and U.S. Marine Corps remained in Saudi Arabia under the aegis of Joint Task Force Southwest Asia (JTF-SWA), as part of Operation Southern Watch (OSW). The United Kingdom and France also maintained a small contingent of Royal Air Force and French Air Force
@@ -271,7 +285,106 @@ Document [5](Title: Decolonization): the responsibility of the United Kingdom (w
 Answer: The United States took the first step towards gaining independence from Great Britain when it declared independence from Great Britain on July 2, 1776 (although the event is now commemorated on July 4, 1776, the date when the Declaration of Independence was officially adopted by Congress) [2]. The Treaty of Paris was later signed on September 3, 1783, formally separating the United States from the British Empire [3].
 
 
-"""
+Your turn:
+Question: """
+
+
+ELI5_2_SHOT_INST_BASE = """Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question. Use an unbiased and journalistic tone. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+Question: Why did New York City try to ban food donations to the poor?
+Answer: New York City, under Mayor Michael Bloomberg's administration, banned citizens from donating food directly to homeless shelters because the city could not assess the salt, fat, and fiber content. Bloomberg's administration was heavily criticized for losing their common sense by becoming too focused on what people eat.
+
+Question: What's the difference between Shia vs. Sunni Islam?
+Answer: The main difference between Shia and Sunni Muslim is related to ideological heritage and issues of leadership. This difference is first formed after the death of the Prophet Muhammad in 632 A.D. The ideological practice of the Sunni branch strictly follows Prophet Muhammad and his teachings, while the Shia branch follows Prophet Muhammad's son-in-law Ali. Nowadays, Sunni and Shia are the major branches of Islam.
+
+Question: """
+
+
+
+ELI5_2_SHOT_INST = """You are a helpful assistant that answers the following questions with proper citations.
+
+Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite AT LEAST ONE document and AT MOST THREE documents in EACH sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents. Follow the writing style (one paragraph of one or more sentences) of the answers shown in the examples. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+
+Example 1:
+Question: Why did New York City try to ban food donations to the poor?
+
+Document [1]: believe that they are \u201chelping\u201d the homeless by passing such laws. In New York City, Mayor Bloomberg has banned citizens from donating food directly to homeless shelters and he is actually convinced that it was the right thing to do for the homeless\u2026 Mayor Michael Bloomberg\u2019s food police have struck again! Outlawed are food donations to homeless shelters because the city can\u2019t assess their salt, fat and fiber content, reports CBS 2\u2019s Marcia Kramer. Glenn Richter arrived at a West Side synagogue on Monday to collect surplus bagels \u2014 fresh nutritious bagels \u2014 to donate to the poor..
+Document [2]: muck: Bloomberg Bans Food Donations in New York City Food Might Be Salty or Too High in Calories, City Explains Washington, D.C. \u2013 New York Mayor Michael Bloomberg\u2019s administration is now banning all food being offered to the city\u2019s homeless shelters. New York City\u2019s bureaucrats have become so singularly focused on what people eat, says the National Center for Public Policy Research, that they\u2019ve lost their common sense. \u201cSo much for serving the homeless: The Bloomberg administration is now taking the term \u2018food police\u2019 to new depths, blocking food donations to all government-run facilities that serve the
+Document [3]: New York City bans food donations - WND Front Page Health U.S. New York City bans food donations Inability to control 'nutritional content' cited as reason New York City homeless shelters have Mayor Michael Bloomberg to thank for a halt in food donations, for which hungry families are waiting, according to one public policy advocate. \"The Bloomberg administration is now taking the term 'food police' to new depths, blocking food donations to all government-run facilities that serve the city's homeless,\" says Jeff Stier, a National Center for Public Policy Research senior fellow. Currently, no food can be given to government-run, New York City facilities, despite hungry crowds perfectly
+Document [4]: New York City bans food donations - WND Services didn't return WND calls. Stier told WND that he specifically was told by Diamond that the policy was tied to the nutritional guidelines set by the mayor. \"They can say that this ban on donations is a long-standing policy, but they can\u2019t document it,\" Stier told WND. \"I've also been told that there are numerous food shelves that have been accepting food donations, not just one.\" Stier is a member of a New York Synagogue that has donated food for over a decade. He is outraged that the DHS' response to his demand to know why the practice can
+Document [5]: New York City bans food donations - WND ban on donated food. In fact, it thrives because of food donations. New York City Rescue Mission has been providing food, clothing, shelter and spiritual hope for needy New Yorkers since 1872. \"We feed over 500 people a day, all through donations,\" said James Varnhagen, NYCRM director. \"Boxed food, canned food, prepared food, we take any food,\" he told WND. \"We couldn't survive without donations,\" he said.
+
+Answer: New York City, under Mayor Michael Bloomberg's administration, banned citizens from donating food directly to homeless shelters because the city could not assess the salt, fat, and fiber content [1][2][3]. Bloomberg's administration was heavily criticized for losing their common sense by becoming too focused on what people eat [2].
+
+
+Example 2:
+Question: What's the difference between Shia vs. Sunni Islam?
+
+Document [1]: centuries-long strained relationship between Sunnis and Shias. As a scholar of Islam and a public educator, I often field questions about Sunnis, Shias and the sects of Islam. What exactly is the Shia-Sunni divide? And what is its history? History of divide Both Sunnis and Shias \u2013 drawing their faith and practice from the Qur\u2019an and the life of the Prophet Muhammad \u2013 agree on most of the fundamentals of Islam. The differences are related more to historical events, ideological heritage and issues of leadership. The first and central difference emerged after the death of Prophet Muhammad in A.D. 632.
+Document [2]: What\u2019s the difference between Sunni and Shia Islam? Sunni and Shia identities (the 2 main branches of Islam) first formed around a dispute over leadership succession after the death of the Prophet Muhammad in 632 A.D. Sunni is the larger branch (estimated 85-90% of total world Muslim population) and it's adherents are referred to as \"people of the tradition of Muhammad\", while Shia are \"followers\" of Muhammad's son-in-law and cousin Ali. Sunnis rely heavily on the practice of the Prophet Muhammad and his teachings, the Shia view their ayatollahs as reflections of God on earth. What challenges does the anti-IS
+Document [3]: of Muhammad, the last prophet of God. A follower of Islam is known as a Muslim. Many Muslims believe that their sole purpose is to worship and serve God, for which they have established five pillars of Islam that guides a Muslim on almost every aspect of life and society. Due to differences, Muslims have been divided into two primary sects: The Sunnis and the Shias. These two sects have many similarities and both consider themselves are Muslims, following the will of God. However, they are also different from each other in certain aspects. Both the Sunnis and the Shias
+Document [4]: What is the difference between Shia and Sunni Islam? - Islam Stack Exchange between Mutah marriage and Misyar marriage? What theological and historical factors distinguish Ibadi Islam from either Shia or Sunni schools? What are the principle/fundamental differences between Sunni and Shia? Nikah between a Sunni girl and Shia boy What is the difference between \u201cMubtalat-of-Wudu\u201d of Shia and Sunni? How can the Hadith be reliable when Sunnis and Shia follow different points of reference? Rejection of Mutawatir Hadith in Sunni Islam and Shia Islam
+Document [5]: What is the difference between Sunni and Shia Islam? | Patrick Syder Travel What is the difference between Sunni and Shia Islam? This Channel 4 link answers some of the key questions about the difference between Sunni and Shia Islam and alarmingly, the politics on what is happening and why, in Syria\u2026\u2026. http://www.channel4.com/news/sunni-shia-islam-muslim-syria-middle-east-key-questions \u2190 Ethiopia Appeal \u2013 Help sponsor a nurse to train and to help others G\u00f6bekli Tepe, Turkey: a new wonder of the ancient world by Jeremy Seal (Telegraph Travel Section 23/04/2013) \u2192
+
+Answer: The main difference between Shia and Sunni Muslim is related to ideological heritage and issues of leadership [1]. This difference is first formed after the death of the Prophet Muhammad in 632 A.D. [1][2]. The ideological practice of the Sunni branch strictly follows Prophet Muhammad and his teachings, while the Shia branch follows Prophet Muhammad's son-in-law Ali [2]. Nowadays, Sunni and Shia are the major branches of Islam [3].
+
+
+Your turn:
+Question: """
+
+
+ALCE_2_SHOT_TRIPLES_INST = """Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using the retrieved graph information (some of which might be irrelevant). Use an unbiased and journalistic tone. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+Examples:
+
+Question: Which is the most rainy place on earth?
+Retrieved Graph Information: (S> Cherrapunji| P> Alternative name| O> Sohra), (S> Cherrapunji| P> Located in| O> East Khasi Hills district), (S> Cherrapunji| P> Located in state| O> Meghalaya), (S> Cherrapunji| P> Located in country| O> India), (S> Cherrapunji| P> Traditional capital of| O> Nongkhlaw hima), (S> Cherrapunji| P> Previously credited as| O> Wettest place on Earth), (S> Cherrapunji| P> Holds record for| O> Most rainfall in a calendar month), (S> Cherrapunji| P> Record month| O> July 1861), (S> Cherrapunji| P> Holds record for| O> Most rain in a year), (S> Cherrapunji| P> Record year| O> August 1860 to July 1861), (S> Mawsynram| P> Located in| O> East Khasi Hills district), (S> Mawsynram| P> Located in state| O> Meghalaya), (S> Mawsynram| P> Located in country| O> India), (S> Mawsynram| P> Distance from Shillong| O> 65 kilometres), (S> Mawsynram| P> Currently considered| O> Wettest place on Earth), (S> Mawsynram| P> Average annual rainfall| O> 11,872 mm), (S> Mawsynram| P> Rainfall record| O> 26,000 mm), (S> Mawsynram| P> Rainfall record year| O> 1985), (S> Lloró| P> Located in country| O> Colombia), (S> Lloró| P> Average yearly rainfall| O> 12,717 mm), (S> Lloró| P> Rainfall measurement period| O> 1952 to 1989), (S> López de Micay| P> Located in country| O> Colombia), (S> López de Micay| P> Annual rainfall| O> 12,892 mm), (S> López de Micay| P> Rainfall measurement period| O> 1960 to 2012), (S> Big Bog| P> Located on| O> Maui island), (S> Big Bog| P> Average annual rainfall| O> 404 inches), (S> Big Bog| P> Considered| O> Wettest location in US and Oceania)
+Answer: Several places on Earth claim to be the most rainy, such as Lloró, Colombia, which reported an average annual rainfall of 12,717 mm between 1952 and 1989, and López de Micay, Colombia, which reported an annual 12,892 mm between 1960 and 2012 . However, the official record is held by Mawsynram, India with an average annual rainfall of 11,872 mm , although nearby town Sohra, India, also known as Cherrapunji, holds the record for most rain in a calendar month for July 1861 and most rain in a year from August 1860 to July 1861.
+
+
+Question: When did the us break away from england?
+Retrieved Graph Information: (S> United States of America| P> Declared independence from| O> Great Britain), (S> United States of America| P> Declaration date| O> July 2, 1776), (S> Declaration of Independence| P> Adoption date| O> July 4, 1776), (S> Britain| P> Acknowledged independence of| O> United States of America), (S> Britain| P> Acknowledgment year| O> 1783), (S> Treaty of Paris| P> Signing date| O> September 3, 1783), (S> Treaty of Paris| P> Confirmed| O> United States separation from British Empire), (S> United States| P> Took possession of| O> Territory east of Mississippi River), (S> United States| P> Took possession of| O> Territory south of Great Lakes), (S> Britain| P> Retained control of| O> Canada), (S> Spain| P> Took control of| O> Florida)
+Answer: The United States took the first step towards gaining independence from Great Britain when it declared independence from Great Britain on July 2, 1776 (although the event is now commemorated on July 4, 1776, the date when the Declaration of Independence was officially adopted by Congress) . The Treaty of Paris was later signed on September 3, 1783, formally separating the United States from the British Empire.
+
+
+Your turn:
+Question: """
+
+
+from sonnet import *
+def ras_asqa_sonnet(args, models, question, context, graph_processor, retriever):
+    answerer_instruction = ALCE_2_SHOT_TRIPLES_INST
+    triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(context)).replace("\n", " ")
+    print("Triples: ", triples)
+
+    answerer_input = answerer_instruction + question + "\nRetrieved Graph Information:" + triples + "\nAnswer:"
+    generated_answer = get_claude_response(llm="sonnet", prompt=answerer_input, max_tokens=args.max_answer_length)
+    print("Generated answer: ", generated_answer)
+    return generated_answer, [], [triples], [question], [answerer_input]
+
+
+ELI5_2_SHOT_TRIPLES_INST = """Instruction: Write an ACCURATE, ENGAGING, and CONCISE answer for the given question using the retrieved graph information (some of which might be irrelevant). Use an unbiased and journalistic tone. Follow the writing style and length of the answers shown in the examples. The answer should be a single concise paragraph without any listing or line breaks. Only output the answer, do not say anything else.
+
+Question: Why did New York City try to ban food donations to the poor?
+Retrieved Graph Information: (S> New York City| P> Attempted to ban| O> Food donations to the poor), (S> Mayor Bloomberg| P> Banned| O> Citizens from donating food directly to homeless shelters), (S> New York City| P> Cannot assess| O> Salt, fat and fiber content of donated food), (S> Glenn Richter| P> Attempted to donate| O> Surplus bagels to the poor), (S> Bloomberg administration| P> Blocked| O> Food donations to government-run facilities), (S> New York City| P> Cited reason for ban| O> Inability to control nutritional content), (S> Jeff Stier| P> Criticized| O> Bloomberg administration's food donation ban), (S> New York City Rescue Mission| P> Relies on| O> Food donations), (S> New York City Rescue Mission| P> Feeds| O> Over 500 people a day through donations), (S> James Varnhagen| P> Is director of| O> New York City Rescue Mission)
+Answer: New York City, under Mayor Michael Bloomberg's administration, banned citizens from donating food directly to homeless shelters because the city could not assess the salt, fat, and fiber content. Bloomberg's administration was heavily criticized for losing their common sense by becoming too focused on what people eat.
+
+Question: What's the difference between Shia vs. Sunni Islam?
+Retrieved Graph Information: (S> Sunni Islam| P> Percentage of world Muslim population| O> 85-90%), (S> Sunni Muslims| P> Referred to as| O> People of the tradition of Muhammad), (S> Shia Muslims| P> Referred to as| O> Followers of Muhammad's son-in-law and cousin Ali), (S> Sunni-Shia divide| P> Originated from| O> Dispute over leadership succession), (S> Sunni-Shia divide| P> Began after| O> Death of Prophet Muhammad in 632 A.D.), (S> Sunni Muslims| P> Rely heavily on| O> Practice and teachings of Prophet Muhammad), (S> Shia Muslims| P> View as reflections of God on earth| O> Ayatollahs), (S> Islam| P> Has| O> Five pillars), (S> Five pillars of Islam| P> Guide Muslims on| O> Almost every aspect of life and society), (S> Sunni and Shia| P> Are| O> Two primary sects of Islam), (S> Sunni and Shia| P> Share| O> Many similarities), (S> Sunni and Shia| P> Differ in| O> Certain aspects)
+Answer: The main difference between Shia and Sunni Muslim is related to ideological heritage and issues of leadership. This difference is first formed after the death of the Prophet Muhammad in 632 A.D. The ideological practice of the Sunni branch strictly follows Prophet Muhammad and his teachings, while the Shia branch follows Prophet Muhammad's son-in-law Ali. Nowadays, Sunni and Shia are the major branches of Islam.
+
+Question: """
+
+def ras_eli5_sonnet(args, models, question, context, graph_processor, retriever):
+    answerer_instruction = ELI5_2_SHOT_TRIPLES_INST
+    triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(context)).replace("\n", " ")
+    print("Triples: ", triples)
+
+    answerer_input = answerer_instruction + question + "\nRetrieved Graph Information:" + triples + "\nAnswer:"
+    generated_answer = get_claude_response(llm="sonnet", prompt=answerer_input, max_tokens=args.max_answer_length)
+    print("Generated answer: ", generated_answer)
+    return generated_answer, [], [triples], [question], [answerer_input]
 
 
 TASK_INST = {"wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
@@ -282,8 +395,9 @@ TASK_INST = {"wow": "Given a chat history separated by new lines, generates an i
              "arc_c": "Given four answer candidates, A, B, C and D, choose the best answer choice. Only output the letter of the answer choice, e.g. A, B, C, or D. Do not say anything else, and only output A, B, C, or D.",
              "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
              "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers.",
-             "asqa_original": ALCE_2_SHOT_INST + "\n" + "Instruction: Write an accurate, engaging, and concise answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite at least one document and at most three documents in each sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents."
-             
+             "asqa_original": ALCE_2_SHOT_INST + "\n" + "Instruction: Write an accurate, engaging, and concise answer for the given question using only the provided search results (some of which might be irrelevant) and cite them properly. Use an unbiased and journalistic tone. Always cite for any factual claim. When citing several search results, use [1][2][3]. Cite at least one document and at most three documents in each sentence. If multiple documents support the sentence, only cite a minimum sufficient subset of the documents.",
+             "2wikimultihop": "Answer the following question. Just output the answer (even if you are not sure), do not say anything else."
+
              }
 
 rel_tokens_names = ["[Irrelevant]", "[Relevant]"]

@@ -71,26 +71,26 @@
 
 # python sonnet_test.py \
 #     --input_file /shared/eng/pj20/firas_data/test_datasets/2wikimultihop_test.json \
-#     --max_new_tokens 300 --metric f1 \
+#     --max_new_tokens 100 --metric f1 \
 #     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/2wikimultihop_sonnet_base.jsonl \
-#     --task qa \
+#     --task 2wikimultihop \
 #     --prompt_name prompt_no_input
 
-python sonnet_test.py \
-    --input_file /shared/eng/pj20/firas_data/test_datasets/2wikimultihop_test.json \
-    --max_new_tokens 300 --metric f1 \
-    --result_fp /shared/eng/pj20/firas_data/test_datasets/results/2wikimultihop_sonnet_retrieval_top_1.jsonl \
-    --task qa \
-    --prompt_name prompt_no_input_retrieval \
-    --mode retrieval \
-    --top_n 1
+# python sonnet_test.py \
+#     --input_file /shared/eng/pj20/firas_data/test_datasets/2wikimultihop_test.json \
+#     --max_new_tokens 100 --metric f1 \
+#     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/2wikimultihop_sonnet_retrieval_top_1.jsonl \
+#     --task 2wikimultihop \
+#     --prompt_name 2wikimultihop_ret \
+#     --mode retrieval \
+#     --top_n 1
 
 python sonnet_test.py \
     --input_file /shared/eng/pj20/firas_data/test_datasets/2wikimultihop_test.json \
-    --max_new_tokens 300 --metric f1 \
+    --max_new_tokens 100 --metric f1 \
     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/2wikimultihop_sonnet_retrieval_top_5.jsonl \
-    --task qa \
-    --prompt_name prompt_no_input_retrieval \
+    --task 2wikimultihop \
+    --prompt_name 2wikimultihop_ret \
     --mode retrieval \
     --top_n 5
 
@@ -101,3 +101,22 @@ python sonnet_test.py \
 #     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/bio_sonnet_base.jsonl \
 #     --task factscore \
 #     --prompt_name prompt_no_input
+
+
+# python sonnet_test.py \
+#     --input_file /shared/eng/pj20/firas_data/test_datasets/eli5_test.json \
+#     --max_new_tokens 300 --metric match \
+#     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/eli5_sonnet_test_base.jsonl \
+#     --task eli5_base \
+#     --prompt_name eli5_base \
+#     --mode eli5_base \
+#     --top_n 5
+
+# python sonnet_test.py \
+#     --input_file /shared/eng/pj20/firas_data/test_datasets/eli5_test.json \
+#     --max_new_tokens 300 --metric match \
+#     --result_fp /shared/eng/pj20/firas_data/test_datasets/results/eli5_sonnet_test_retrieval_top_5.jsonl \
+#     --task eli5_ret \
+#     --prompt_name eli5_ret \
+#     --mode eli5_ret \
+#     --top_n 5

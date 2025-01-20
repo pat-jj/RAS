@@ -21,8 +21,8 @@ def split_dense_index(knowledge_path, num_splits=5):
     print("Step 1: Loading dense index and mapping...")
     
     # Load dense index and mapping
-    dense_index = faiss.read_index(f"{knowledge_path}/embedding/wikipedia_embeddings.faiss")
-    with open(f"{knowledge_path}/embedding/text_mapping.json", 'rb') as f:
+    dense_index = faiss.read_index(f"{knowledge_path}/embedding/wikipedia_embeddings_cleaned.faiss")
+    with open(f"{knowledge_path}/embedding/text_mapping_cleaned.json", 'rb') as f:
         dense_text_mapping = orjson.loads(f.read())
     
     # Convert mapping to list and shuffle
@@ -51,7 +51,7 @@ def split_dense_index(knowledge_path, num_splits=5):
         
         # Create new index
         new_dense_index = faiss.IndexFlatIP(dense_index.d)
-        dense_vectors = dense_index.reconstruct_batch(dense_indices)
+        dense_vectors = dense_index.reconstruct_n(0, dense_index.ntotal)[dense_indices]  # Changed from reconstruct_batch
         new_dense_index.add(dense_vectors)
         
         # Save new index and mapping

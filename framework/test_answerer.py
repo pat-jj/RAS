@@ -52,12 +52,12 @@ def run_inference(model, test_loader):
                 for i in range(len(outputs['input'])):
                     result = {
                         'input': outputs['input'][i],
-                        'prediction': outputs['pred'][i],
+                        'prediction': outputs['pred'][i].split("</s>")[0],
                         'label': outputs['label'][i]
                     }
                     all_results.append(result)
                     print(f"INPUT: {outputs['input'][i]}")
-                    print(f"PREDICTION: {outputs['pred'][i]}")
+                    print(f"PREDICTION: {outputs['pred'][i].split('</s>')[0]}")
                     print(f"LABEL: {outputs['label'][i]}")
                     
             except Exception as e:

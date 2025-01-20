@@ -19,7 +19,6 @@ class GraphLLM(torch.nn.Module):
         kwargs = {
             # "max_memory": {0: '20GiB', 1: '20GiB'},
             "max_memory": {0: '80GiB', 1: '80GiB', 2: '80GiB', 3: '80GiB'},
-            # "max_memory": {0: '80GiB', 1: '80GiB', 2: '80GiB'},
             # "max_memory": {1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB'},
             "device_map": "auto",
             "revision": "main",
@@ -33,27 +32,8 @@ class GraphLLM(torch.nn.Module):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # Define special tokens
-        special_tokens = {
-            'additional_special_tokens': [
-                '[NO_RETRIEVAL]',
-                '[SUBQ]',
-                '[SUFFICIENT]',
-                'Question:',  # New
-                'Retrieved Graph Information:'  # New
-            ]
-        }
-        
-        # Add special tokens to tokenizer
-        num_added_tokens = self.tokenizer.add_special_tokens(special_tokens)
-        
-        # Store special token ids
-        self.no_retrieval_token_id = self.tokenizer.convert_tokens_to_ids('[NO_RETRIEVAL]')
-        self.subq_token_id = self.tokenizer.convert_tokens_to_ids('[SUBQ]')
-        self.sufficient_token_id = self.tokenizer.convert_tokens_to_ids('[SUFFICIENT]')
-
         # Get special tokens from tokenizer
-        self.eos_token = self.tokenizer.eos_token  
+        self.eos_token = self.tokenizer.eos_token
         
         # Construct chat format tokens
         self.BOS = '<s>[INST]'
@@ -67,9 +47,6 @@ class GraphLLM(torch.nn.Module):
             low_cpu_mem_usage=True,
             **kwargs
         )
-
-        # Resize token embeddings after model is loaded
-        model.resize_token_embeddings(len(self.tokenizer))
 
         if args.llm_frozen == 'True':
             print("Freezing LLAMA!")
@@ -155,13 +132,6 @@ class GraphLLM(torch.nn.Module):
         return g_embeds.unsqueeze(0)  # [1, 1, hidden_dim]
     
     def forward(self, samples):
-        # Verify special token handling
-        for input_text in samples['input']:
-            if '[NO_RETRIEVAL]' in input_text:
-                assert self.tokenizer.convert_tokens_to_ids('[NO_RETRIEVAL]') in \
-                    self.tokenizer(input_text, add_special_tokens=False).input_ids, \
-                    "NO_RETRIEVAL token not correctly tokenized"
-
         # Tokenize inputs and labels
         inputs = self.tokenizer(samples['input'], add_special_tokens=False)
         labels = self.tokenizer(samples['label'], add_special_tokens=False)
@@ -288,12 +258,24 @@ class GraphLLM(torch.nn.Module):
                 inputs_embeds=inputs_embeds,
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
-                use_cache=True,  # IMPORTANT: keep this as in G-Retriever
+                use_cache=True, 
                 # pad_token_id=self.tokenizer.pad_token_id,
                 # eos_token_id=self.tokenizer.eos_token_id,
             )
+            # outputs = self.model.generate(
+            #     inputs_embeds=inputs_embeds,
+            #     max_new_tokens=self.max_new_tokens,
+            #     attention_mask=attention_mask,
+            #     use_cache=True,
+            #     # Add these parameters:
+            #     temperature=0.7,  # Lower temperature for more focused sampling
+            #     top_p=0.9,       # Nucleus sampling parameter
+            #     top_k=50,        # Limit vocabulary to top K tokens
+            #     num_beams=3,     # Use beam search
+            #     do_sample=True,  # Enable sampling
+            # )
 
-        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
+        predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False, clean_up_tokenization_spaces=False)
         
         return {
             'input': samples['input'],

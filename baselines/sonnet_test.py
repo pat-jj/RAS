@@ -77,7 +77,7 @@ def main():
     parser.add_argument('--result_fp', type=str)
     parser.add_argument('--task', type=str)
     parser.add_argument('--prompt_name', type=str, default="prompt_no_input")
-    parser.add_argument('--batch_size', type=int, default=5)
+    parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument("--choices",  type=str, default=None,
                         help="space-separated answer candidates")
     parser.add_argument("--instruction",  type=str,
@@ -98,9 +98,15 @@ def main():
         for i in range(len(input_data['question'])):
             context_list = []
             for j in range(len(input_data['context'][i])):
-                context_list.append(input_data['context'][i][j][0])
+                context_list.append(input_data['context'][i][j])
             input_data_.append({"question": input_data['question'][i], "ctxs": context_list, "answers": input_data['answer'][i]})
-        input_data = input_data_[:1000]
+        # input_data = input_data_[:1000]
+        
+    if "eli5" in args.input_file:
+        for i in range(len(input_data['question'])):
+            input_data_.append({"question": input_data['question'][i], "ctxs": input_data['context'][i], "answers": input_data['answer'][i]})
+        
+        input_data = input_data_
     
     if args.mode == "retrieval":
         if args.retrieval_file is not None:
@@ -125,9 +131,9 @@ def main():
                 item["paragraph"] = "\n".join(evidences)
         else:
             for id, item in enumerate(input_data):
-                retrieval_result = item["ctxs"][:args.top_n]
+                retrieval_result = item["ctxs"][:args.top_n] if len(item["ctxs"]) > args.top_n else item["ctxs"]
                 evidences = ["[{}] ".format(
-                    i+1) + ctx for i, ctx in enumerate(retrieval_result)]
+                    i+1) + " ".join(ctx) for i, ctx in enumerate(retrieval_result)]
                 item["paragraph"] = "\n".join(evidences)
                 
     if "asqa" in args.mode:
@@ -135,6 +141,12 @@ def main():
             retrieval_result = item["ctxs"][:args.top_n]
             evidences = ["Document [{}]".format(
                 i+1) + "(Title: {}): {}".format(ctx["title"], ctx["text"]) for i, ctx in enumerate(retrieval_result)]
+            item["paragraph"] = "\n".join(evidences)
+            
+    if "eli5" in args.mode:
+        for id, item in enumerate(input_data):
+            evidences = ["Document [{}]: {}".format(
+                i+1, ctx) for i, ctx in enumerate(item["ctxs"])]
             item["paragraph"] = "\n".join(evidences)
             
     for item in input_data:
@@ -166,6 +178,10 @@ def main():
             item["instruction"] = process_arc_instruction(item, TASK_INST[args.task])
         if "asqa" in args.task:
             item["instruction"] = TASK_INST[args.task] + item["question"]
+        if "eli5" in args.input_file:
+            item["instruction"] = TASK_INST[args.task] + item["question"]
+        if "2wikimultihop" in args.input_file:
+            item["instruction"] = TASK_INST[args.task] + "\n" + item["question"]
                 
     # Process all items in larger batches for better throughput
     batch_size = max(args.batch_size, 32)  # Use larger batches
@@ -190,7 +206,7 @@ def main():
             pbar.update(len(batch))
     
     # Calculate metrics
-    if "asqa" not in args.task:
+    if "asqa" not in args.task and "eli5" not in args.task:
         for item in input_data:
             if args.metric == "em":
                 metric_result = metric_max_over_ground_truths(
@@ -203,7 +219,7 @@ def main():
                 metric_result = 0.0
                 
             elif args.metric == "f1":
-                metric_result = f1_score(item["output"], item["golds"])
+                metric_result = f1_score(item["output"], [item["golds"]])
                 
             else:
                 raise NotImplementedError
@@ -219,7 +235,7 @@ def main():
             processed_item.append(item)
         save_file_jsonl(processed_item, args.result_fp)
         
-    elif "asqa" in args.task:
+    elif "asqa" in args.task or "eli5" in args.task:
         processed_item = []
         for item in input_data:
             processed_item.append(item)

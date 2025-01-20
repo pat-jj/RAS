@@ -287,10 +287,22 @@ class GraphLLM(torch.nn.Module):
                 inputs_embeds=inputs_embeds,
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
-                use_cache=True,  # IMPORTANT: keep this as in G-Retriever
+                use_cache=True, 
                 # pad_token_id=self.tokenizer.pad_token_id,
                 # eos_token_id=self.tokenizer.eos_token_id,
             )
+            # outputs = self.model.generate(
+            #     inputs_embeds=inputs_embeds,
+            #     max_new_tokens=self.max_new_tokens,
+            #     attention_mask=attention_mask,
+            #     use_cache=True,
+            #     # Add these parameters:
+            #     temperature=0.7,  # Lower temperature for more focused sampling
+            #     top_p=0.9,       # Nucleus sampling parameter
+            #     top_k=50,        # Limit vocabulary to top K tokens
+            #     num_beams=3,     # Use beam search
+            #     do_sample=True,  # Enable sampling
+            # )
 
         predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
         

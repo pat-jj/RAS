@@ -1,15 +1,15 @@
 export CUDA_VISIBLE_DEVICES=2,3,4,5
 
-python run_ras.py \
-    --dataset pubhealth \
-    --knowledge_source wiki_2018 \
-    --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
-    --text_to_triples_model sonnet \
-    --planner_model sonnet \
-    --answerer_model sonnet \
-    --retrieval_mode dense_only \
-    --max_answer_length 50 \
-    --debug
+# python run_ras.py \
+#     --dataset pubhealth \
+#     --knowledge_source wiki_2018 \
+#     --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
+#     --text_to_triples_model sonnet \
+#     --planner_model sonnet \
+#     --answerer_model sonnet \
+#     --retrieval_mode dense_only \
+#     --max_answer_length 50 \
+#     --debug
 
 
 # python run_ras.py \
@@ -43,3 +43,47 @@ python run_ras.py \
 #     --planner_model sonnet \
 #     --answerer_model sonnet \
 #     --retrieval_mode dense_only
+
+# export CUDA_VISIBLE_DEVICES=1,2,3,4,5
+# python run_ras.py \
+#     --dataset arc_c \
+#     --knowledge_source wiki_2018 \
+#     --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
+#     --text_to_triples_model sonnet \
+#     --planner_model sonnet \
+#     --answerer_model sonnet \
+#     --retrieval_mode dense_only \
+#     --max_answer_length 50 
+
+# python run_ras.py \
+#     --dataset asqa \
+#     --knowledge_source wiki_2018 \
+#     --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
+#     --text_to_triples_model sonnet \
+#     --planner_model sonnet \
+#     --answerer_model sonnet \
+#     --retrieval_mode dense_only \
+#     --max_answer_length 300
+
+# python run_ras.py \
+#     --dataset eli5 \
+#     --knowledge_source wiki_2018 \
+#     --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
+#     --text_to_triples_model sonnet \
+#     --planner_model sonnet \
+#     --answerer_model sonnet \
+#     --retrieval_mode dense_only \
+#     --max_answer_length 300
+
+
+export CUDA_VISIBLE_DEVICES=1,2,3,4
+python run_ras.py \
+    --dataset 2wikimultihop \
+    --knowledge_source wiki_2018 \
+    --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
+    --text_to_triples_model sonnet \
+    --planner_model sonnet \
+    --answerer_model sonnet \
+    --retrieval_mode dense_only \
+    --max_answer_length 100
+    # --debug

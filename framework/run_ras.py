@@ -6,28 +6,66 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5Tokenizer, T5ForConditionalGeneration
 from models.graphllm_ans_v2 import GraphLLM as Answerer
 from models.graphllm_pla_v2 import GraphLLM as Planner
-from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document
+from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document, load_file, ras_asqa_sonnet, ras_eli5_sonnet
 from tqdm import tqdm
 from td_retriever import ThemeScopedRetriever
 from sonnet import planner_sonnet, answerer_sonnet, text_to_triples_sonnet
 from safetensors.torch import load_model
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
+import time
+from functools import partial
 
 
 # Data Loading
 def load_data(args):
     if args.dataset == 'popqa' and args.knowledge_source != 'wiki2020':
         raise ValueError("PopQA dataset should be tested with wiki2020 as the knowledge source!")
-    data_path = os.path.join(args.test_data_path, args.dataset + "_test.json")
-    with open(data_path, 'r') as f:
-        data = json.load(f)
     
-    questions = data['question']
-    contexts = data['context']
+    questions = []
+    contexts = []
+    others = {}
+    answers = []
     
+    if args.dataset == 'arc_c':
+        data_path = os.path.join(args.test_data_path, args.dataset + "_test_processed.jsonl")
+        data_ = load_file(data_path)
+        for item in data_:
+            questions.append(item['instruction'])
+            contexts.append([d['text'] for d in item['ctxs']][:5])
+            answers.append(item['answerKey'])
             
-    others = {key: data[key] for key in data.keys() if key not in ['question', 'context']}
+        data = {}
+        data['question'] = questions
+        data['context'] = contexts
+        data['answer'] = answers
+        data['others'] = others
+        
+    if args.dataset == 'asqa':
+        data_path = os.path.join(args.test_data_path, args.dataset + "_test_processed.json")
+        with open(data_path, 'r') as f:
+            data = json.load(f)['data']
+        for item in data:
+            questions.append(item['question'])
+            contexts.append([d['text'] for d in item['ctxs']][:5])
+            answers.append(item['answer'])
+            
+        data = {}
+        data['question'] = questions
+        data['context'] = contexts
+        data['answer'] = answers
+        data['others'] = others
+          
+        
+    else:
+        data_path = os.path.join(args.test_data_path, args.dataset + "_test.json")
+        with open(data_path, 'r') as f:
+            data = json.load(f)
     
-    if args.dataset == 'triviaqa' or args.dataset == '2wikimultihop':
+        questions = data['question']
+        contexts = data['context']
+        others = {key: data[key] for key in data.keys() if key not in ['question', 'context']}
+    
+    if args.dataset == 'triviaqa':
         questions = questions[:1000]
     
     questions_new = []
@@ -36,17 +74,23 @@ def load_data(args):
             questions_new.append(TASK_INST["fever"] + "\n\n### Input:\n" + question)
         questions = questions_new
         
+    # questions_new = []
+    # if args.dataset == '2wikimultihop':
+    #     for question in questions:
+    #         questions_new.append(TASK_INST["2wikimultihop"] + "\nQuestion: " + question)
+    #     questions = questions_new
+        
     q2c = {}
-    if args.dataset != '2wikimultihop':
-        for i in range(len(questions)):
-            q2c[questions[i]] = contexts[i]
+    # if args.dataset != '2wikimultihop':
+    for i in range(len(questions)):
+        q2c[questions[i]] = contexts[i]
             
-    else:
-        for i in range(len(questions)):
-            context_list = []
-            for j in range(len(contexts[i])):
-                context_list.append(contexts[i][j][0])
-            q2c[questions[i]] = context_list
+    # else:
+    #     for i in range(len(questions)):
+    #         context_list = []
+    #         for j in range(len(contexts[i])):
+    #             context_list.append(contexts[i][j])
+    #         q2c[questions[i]] = context_list
     
     return data, questions, q2c, others
           
@@ -81,8 +125,21 @@ def load_models(args):
     return planner_model, answerer_model, t2t_tokenizer, t2t_model
         
 
+def process_doc(doc):
+    try:
+        return text_to_triples_sonnet(doc).replace("\n", " ")
+    except Exception as e:
+        print(f"Error processing document: {e}")
+        return ""  # Return empty string on error
+
 # RAS
 def ras(args, models, question, context, graph_processor, retriever):
+    if args.dataset == "asqa":
+        return ras_asqa_sonnet(args, models, question, context, graph_processor, retriever)
+    
+    if args.dataset == "eli5":
+        return ras_eli5_sonnet(args, models, question, context, graph_processor, retriever)
+    
     planner_model, answerer_model, t2t_tokenizer, t2t_model = models
     
     planner_instruction = get_planner_instruction(args.planner_model)
@@ -109,6 +166,7 @@ def ras(args, models, question, context, graph_processor, retriever):
     # else:
     #     sub_query = planner_output
     
+    # we set the first sub_query to be the question itself
     sub_query = question
     
     graphs = []
@@ -130,7 +188,10 @@ def ras(args, models, question, context, graph_processor, retriever):
         # Stage 1: Theme-based retrieval
         print(f"Retrieving information ...")
         if iteration == 0:
-            retrieved_docs = context
+            if args.dataset != "2wikimultihop":
+                retrieved_docs = context
+            else:
+                retrieved_docs = context[:5]
         else:
             retrieved_docs = retriever.retrieve(sub_query, top_k=5)
             retrieved_docs = [item[0] for item in retrieved_docs]
@@ -146,13 +207,38 @@ def ras(args, models, question, context, graph_processor, retriever):
         # Stage 2: Text-to-triples-to-graph 
         print(f"Text-to-triples ...")
         if t2t_model != "sonnet":
-            # by our T2T model
-            triples = text_to_triples(t2t_tokenizer, t2t_model, retrieved_docs)
+            triples = ""
+            for retrieved_doc in retrieved_docs:
+                triples += text_to_triples(t2t_tokenizer, t2t_model, retrieved_doc)
+                
             graph = graph_processor.create_graph_from_triples(triples)
             graphs.append(graph)
         else:
             # by Sonnet
             triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(retrieved_docs)).replace("\n", " ")
+            # triples = ""
+            # for retrieved_doc in retrieved_docs:
+            #     with ThreadPoolExecutor(max_workers=5) as executor:  # 5 workers since we typically have 5 docs
+            #         # Submit all tasks and store futures with their indices
+            #         future_to_idx = {executor.submit(process_doc, doc): idx 
+            #                         for idx, doc in enumerate(retrieved_docs)}
+                    
+            #         # Initialize results list with empty strings
+            #         results = [""] * len(retrieved_docs)
+                    
+            #         # Collect results as they complete
+            #         for future in as_completed(future_to_idx):
+            #             idx = future_to_idx[future]
+            #             try:
+            #                 result = future.result(timeout=30)  # 30 second timeout per document
+            #                 results[idx] = result
+            #             except TimeoutError:
+            #                 print(f"Processing document {idx} timed out")
+            #             except Exception as e:
+            #                 print(f"Error processing document {idx}: {e}")
+                    
+            #         # Join results in correct order
+            #         triples = " ".join(results)
         
         if args.debug:
             print(f"Triples: {triples}")
@@ -255,7 +341,11 @@ def main():
     
     print("Loading graph processor ...")
     graph_processor = GraphProcessor()
-    retriever = ThemeScopedRetriever(retrieval_mode=args.retrieval_mode, debug=args.debug)
+    if args.dataset == "asqa" or args.dataset == "eli5":
+        print("ASQA or ELI5 task, using top 5 docs as context and no retrieval ...")
+        retriever = None
+    else:
+        retriever = ThemeScopedRetriever(retrieval_mode=args.retrieval_mode, debug=args.debug)
     
     if os.path.exists(os.path.join(args.test_data_path, args.dataset + f"_test_output_{args.planner_model}_{args.answerer_model}.json")):
         print(f"Load existing output ...")
