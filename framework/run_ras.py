@@ -6,7 +6,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5Tokenizer, T5ForConditionalGeneration
 from models.graphllm_ans_v2 import GraphLLM as Answerer
 from models.graphllm_pla_v2 import GraphLLM as Planner
-from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document, load_file, ras_asqa_sonnet, ras_eli5_sonnet
+from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document, load_file, ras_asqa_sonnet, ras_eli5_sonnet, convert_triple_str_to_graph
 from tqdm import tqdm
 from td_retriever import ThemeScopedRetriever
 from sonnet import planner_sonnet, answerer_sonnet, text_to_triples_sonnet
@@ -99,16 +99,16 @@ def load_data(args):
 def load_models(args):
     if args.planner_model != 'sonnet':
         print(f"Using {args.planner_model} as planner model, initializing model ...")
-        args.llm_model_path = args.planner_checkpoint
         planner_model = Planner(args)
+        load_model(planner_model, args.planner_checkpoint)
     else:
         planner_model = "sonnet"
         print("Using Sonnet, skipping planner model loading ...")
         
     if args.answerer_model != 'sonnet':
         print(f"Using {args.answerer_model} as answerer model, initializing model ...")
-        args.llm_model_path = args.answerer_checkpoint
         answerer_model = Answerer(args)
+        load_model(answerer_model, args.answerer_checkpoint)
     else:
         answerer_model = "sonnet"
         print("Using Sonnet, skipping answerer model loading ...")
@@ -147,6 +147,7 @@ def ras(args, models, question, context, graph_processor, retriever):
     end_iteration_flag = False
     
     # Stage 0: Determine if retrieval is needed
+    # start_time = time.perf_counter()
     if args.planner_model != "sonnet":
         planner_complete_input = planner_instruction + "\n" + question
         with torch.no_grad():
@@ -157,11 +158,14 @@ def ras(args, models, question, context, graph_processor, retriever):
             })['pred'][0]
     else:
         planner_output = planner_sonnet(question)
+
+    # planner_time = time.perf_counter() - start_time
+    # print(f"Planner time: {planner_time:.2f}s")
         
     if args.debug:
         print(f"Initial planner output: {planner_output}")
     
-    if '[NO_RETRIEVAL]'.lower() in planner_output.lower():
+    if '[NO_RETRIEVAL]'.lower() in planner_output.lower() or 'SUFFICIENT'.lower() in planner_output.lower():
         end_iteration_flag = True
     # else:
     #     sub_query = planner_output
@@ -187,6 +191,7 @@ def ras(args, models, question, context, graph_processor, retriever):
         
         # Stage 1: Theme-based retrieval
         print(f"Retrieving information ...")
+        # start_time = time.perf_counter()
         if iteration == 0:
             if args.dataset != "2wikimultihop":
                 retrieved_docs = context
@@ -195,6 +200,9 @@ def ras(args, models, question, context, graph_processor, retriever):
         else:
             retrieved_docs = retriever.retrieve(sub_query, top_k=5)
             retrieved_docs = [item[0] for item in retrieved_docs]
+            
+        # retrieval_time = time.perf_counter() - start_time
+        # print(f"Retrieval time: {retrieval_time:.2f}s")
         
         # clean_docs = [doc for doc in retrieved_docs if clean_document(doc)]
         # retrieved_docs = clean_docs[:5]
@@ -206,6 +214,7 @@ def ras(args, models, question, context, graph_processor, retriever):
         
         # Stage 2: Text-to-triples-to-graph 
         print(f"Text-to-triples ...")
+        # start_time = time.perf_counter()
         if t2t_model != "sonnet":
             triples = ""
             for retrieved_doc in retrieved_docs:
@@ -216,29 +225,20 @@ def ras(args, models, question, context, graph_processor, retriever):
         else:
             # by Sonnet
             triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(retrieved_docs)).replace("\n", " ")
-            # triples = ""
-            # for retrieved_doc in retrieved_docs:
-            #     with ThreadPoolExecutor(max_workers=5) as executor:  # 5 workers since we typically have 5 docs
-            #         # Submit all tasks and store futures with their indices
-            #         future_to_idx = {executor.submit(process_doc, doc): idx 
-            #                         for idx, doc in enumerate(retrieved_docs)}
-                    
-            #         # Initialize results list with empty strings
-            #         results = [""] * len(retrieved_docs)
-                    
-            #         # Collect results as they complete
-            #         for future in as_completed(future_to_idx):
-            #             idx = future_to_idx[future]
-            #             try:
-            #                 result = future.result(timeout=30)  # 30 second timeout per document
-            #                 results[idx] = result
-            #             except TimeoutError:
-            #                 print(f"Processing document {idx} timed out")
-            #             except Exception as e:
-            #                 print(f"Error processing document {idx}: {e}")
-                    
-            #         # Join results in correct order
-            #         triples = " ".join(results)
+            
+            if answerer_model != "sonnet" or planner_model != "sonnet":
+                graph, triples_ = graph_processor.create_graph_from_triples(triples)   
+                
+                if graph is None or triples_ is None:
+                    print(f"Error processing triples: {triples}")
+                    iteration += 1
+                    continue
+                
+                graphs.append(graph)
+                triples = triples_
+            
+        # text_to_triples_time = time.perf_counter() - start_time
+        # print(f"Text-to-triples time: {text_to_triples_time:.2f}s")
         
         if args.debug:
             print(f"Triples: {triples}")
@@ -254,13 +254,15 @@ def ras(args, models, question, context, graph_processor, retriever):
         planner_intput += "Question: " + question
         inputs.append(planner_intput)
         
-        planner_intput = planner_intput.replace("Retrieved Graph Information:", "[PREV_GRAPH_INFO]").replace("[SUBQ]", "[PREV_SUBQ]")
+        if planner_model == "sonnet":
+            planner_intput = planner_intput.replace("Retrieved Graph Information:", "[PREV_GRAPH_INFO]").replace("[SUBQ]", "[PREV_SUBQ]")
         
         if args.debug:
             print(f"Planner input: {planner_intput}")
         
         # Stage 3: Plan next action
         print(f"Planning next action ...")
+        # start_time = time.perf_counter()
         if planner_model != "sonnet":
             planner_complete_input = planner_instruction + "\n" + planner_intput
             with torch.no_grad():
@@ -273,10 +275,13 @@ def ras(args, models, question, context, graph_processor, retriever):
         else:
             planner_output = planner_sonnet(planner_intput)
             
+        # planner_time = time.perf_counter() - start_time
+        # print(f"Planner time: {planner_time:.2f}s")
+            
         if args.debug:
             print(f"Planner output: {planner_output}")
             
-        if 'SUFFICIENT'.lower() in planner_output.lower(): # information is sufficient
+        if 'SUFFICIENT'.lower() in planner_output.lower() or 'NO_RETRIEVAL'.lower() in planner_output.lower(): # information is sufficient
             end_iteration_flag = True
         else:
             sub_query = planner_output
@@ -289,6 +294,8 @@ def ras(args, models, question, context, graph_processor, retriever):
         inputs.append(question)
         
     print(f"Answering the question ...")
+    # start_time = time.perf_counter()
+    
     if answerer_model != "sonnet":
         answerer_input = {
             'input': [answerer_instruction + "\n" + inputs[-1]],
@@ -300,6 +307,9 @@ def ras(args, models, question, context, graph_processor, retriever):
             answerer_output = answerer_model.inference(answerer_input)['pred'][0]
     else:
         answerer_output = answerer_sonnet(inputs[-1], max_answer_length=args.max_answer_length)
+        
+    # answerer_time = time.perf_counter() - start_time
+    # print(f"Answerer time: {answerer_time:.2f}s")
         
     if args.debug:
         print(f"Answerer output: {answerer_output}")
@@ -328,6 +338,24 @@ def read_args():
     parser.add_argument('--max_answer_length', type=int, default=100)
     parser.add_argument('--max_iteration', type=int, default=3)
     parser.add_argument('--debug', action='store_true')
+    
+    
+    # model specific arguments
+    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Llama-2-7b-hf')
+    parser.add_argument('--llm_frozen', type=str, default='False')
+    parser.add_argument('--finetune_method', type=str, default='lora')
+    parser.add_argument('--gnn_model_name', type=str, default='gt')
+    parser.add_argument('--gnn_in_dim', type=int, default=1024)
+    parser.add_argument('--gnn_hidden_dim', type=int, default=1024)
+    parser.add_argument('--gnn_num_layers', type=int, default=3)
+    parser.add_argument('--gnn_dropout', type=float, default=0.1)
+    parser.add_argument('--gnn_num_heads', type=int, default=8)
+    parser.add_argument('--max_txt_len', type=int, default=2500)
+    parser.add_argument('--max_new_tokens', type=int, default=150)  
+    parser.add_argument('--lora_r', type=int, default=8)
+    parser.add_argument('--lora_alpha', type=int, default=16)
+    parser.add_argument('--lora_dropout', type=float, default=0.05)
+    
     return parser.parse_args()
 
 

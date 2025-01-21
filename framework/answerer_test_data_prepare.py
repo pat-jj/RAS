@@ -45,6 +45,8 @@ def construct_data_samples(dataset, data, graph_processor):
         elif dataset == "arc_c":
             question = questions[i].replace("Given four answer candidates, A, B, C and D, choose the best answer choice. Only output the letter of the answer choice, e.g. A, B, C, or D. Do not say anything else, and only output A, B, C, or D.\n\n### Input:\n", "Which is true? Output A, B, C, or D.\n\n### Input:\n")
             pure_question = questions[i].replace("Given four answer candidates, A, B, C and D, choose the best answer choice. Only output the letter of the answer choice, e.g. A, B, C, or D. Do not say anything else, and only output A, B, C, or D.\n\n### Input:\n", "")
+        elif dataset == "2wikimultihop":
+            question = questions[i].replace("\n### Input:\n", "")
         else:
             question = questions[i]
         answer = answers[i]
@@ -126,15 +128,15 @@ def construct_data_samples(dataset, data, graph_processor):
 
 def main():
     graph_processor = GraphProcessor()
-    dataset = "arc_c"
+    dataset = "eli5"
     
     input_data_path = f"/shared/eng/pj20/firas_data/test_datasets/{dataset}_test_output_graphllm_graphllm.json"
     input_data = load_data(input_data_path)
     # input_data = {
-    #     "question": input_data['question'][:1000],
-    #     "answer": input_data['answer'][:1000],
-    #     "triple_lists": input_data['triple_lists'][:1000],
-    #     "subqueries": input_data['subqueries'][:1000],
+    #     "question": input_data['question'][:350],
+    #     "answer": input_data['answer'][:350],
+    #     "triple_lists": input_data['triple_lists'][:350],
+    #     "subqueries": input_data['subqueries'][:350],
     # }
     data_samples = construct_data_samples(dataset, input_data, graph_processor)
     

@@ -76,14 +76,15 @@ export CUDA_VISIBLE_DEVICES=2,3,4,5
 #     --max_answer_length 300
 
 
-export CUDA_VISIBLE_DEVICES=1,2,3,4
+export CUDA_VISIBLE_DEVICES=0,3,4,5
 python run_ras.py \
     --dataset 2wikimultihop \
     --knowledge_source wiki_2018 \
     --knowledge_path /shared/eng/pj20/firas_data/knowledge_source/wiki_2018 \
     --text_to_triples_model sonnet \
-    --planner_model sonnet \
+    --planner_model llama2-7b \
+    --planner_checkpoint /shared/eng/pj20/firas_data/action_planner/hotpotqa_only/ptune/latest_checkpoint_epoch_lora_True.safetensors \
     --answerer_model sonnet \
     --retrieval_mode dense_only \
-    --max_answer_length 100
+    --max_answer_length 100 
     # --debug

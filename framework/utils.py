@@ -572,3 +572,21 @@ def postprocess_answers_closed(output, task, choices=None):
     else:
         return final_output
     
+    
+def convert_triple_str_to_list(triple_str):
+        
+    triples = [triple + ')' if not triple.endswith(')') else triple 
+                                for triple in triple_str.split('), ')] 
+    return triples
+
+def convert_triple_str_to_graph(triple_str, graph_processor):
+    triples = convert_triple_str_to_list(triple_str)
+    try:
+        graph, triples = graph_processor.create_graph_from_triples(triples)
+    except Exception as e:
+        print(f"Error processing triples: {triples}")
+        print(f"Error: {e}")
+        return None, None
+    return graph, triples
+
+    
