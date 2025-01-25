@@ -85,13 +85,12 @@
 #     --mode retrieval \
 #     --top_n 1
 
-python sonnet_test.py \
-    --input_file /shared/eng/pj20/firas_data/test_datasets/2wikimultihop_test.json \
-    --max_new_tokens 100 --metric f1 \
-    --result_fp /shared/eng/pj20/firas_data/test_datasets/results/2wikimultihop_sonnet_retrieval_top_5.jsonl \
-    --task 2wikimultihop \
-    --prompt_name 2wikimultihop_ret \
-    --mode retrieval \
+python sonnet_sure.py \
+    --input_file /shared/eng/pj20/firas_data/test_datasets/eli5_test.json \
+    --max_new_tokens 300 --metric match \
+    --result_fp /shared/eng/pj20/firas_data/test_datasets/results/eli5_sonnet_retrieval_top_5_sure_200.jsonl \
+    --task eli5_ret \
+    --mode eli5_ret \
     --top_n 5
 
 

@@ -12,8 +12,7 @@ def convert_triple_str_to_list(triple_str):
                                 for triple in triple_str.split('), ')] 
     return triples
 
-def convert_triple_str_to_graph(triple_str, graph_processor):
-    triples = convert_triple_str_to_list(triple_str)
+def convert_triple_str_to_graph(triples, graph_processor):
     try:
         graph, triples = graph_processor.create_graph_from_triples(triples)
     except Exception as e:
@@ -94,7 +93,7 @@ def construct_data_samples(dataset, data, graph_processor):
                     triples.append(triples_pre[j])
 
                 input_ += "Question: " + question
-                
+                input_ = input_.replace("</s>", "").replace("[INST]", "").replace("[/INST]", "")
                 print(input_)
                 processed_item = {
                     'input': ANSWERER_INSTRUCTION + "\n" + input_,
@@ -105,7 +104,7 @@ def construct_data_samples(dataset, data, graph_processor):
                 
                 
             else:
-                input_ = ANSWERER_INSTRUCTION + "\nQuestion: " + question
+                input_ = ANSWERER_INSTRUCTION + "\nQuestion: " + question.replace("</s>", "")
                 processed_item = {
                     'input': input_,
                     'label': answer,
@@ -115,7 +114,7 @@ def construct_data_samples(dataset, data, graph_processor):
             data_samples.append(processed_item)
 
         else:
-            input_ = ANSWERER_INSTRUCTION + "\nQuestion: " + question
+            input_ = ANSWERER_INSTRUCTION + "\nQuestion: " + question.replace("</s>", "")
             processed_item = {
                 'input': input_,
                 'label': answer,
@@ -128,19 +127,22 @@ def construct_data_samples(dataset, data, graph_processor):
 
 def main():
     graph_processor = GraphProcessor()
-    dataset = "eli5"
+    dataset = "2wikimultihop"
     
-    input_data_path = f"/shared/eng/pj20/firas_data/test_datasets/{dataset}_test_output_graphllm_graphllm.json"
+    # input_data_path = f"/shared/eng/pj20/firas_data/test_datasets/{dataset}_test_output_sonnet_sonnet.json"
+    input_data_path = f"/shared/eng/pj20/firas_data/test_datasets/{dataset}_test_output_llama2-7b_sonnet_v3.json"
     input_data = load_data(input_data_path)
-    # input_data = {
-    #     "question": input_data['question'][:350],
-    #     "answer": input_data['answer'][:350],
-    #     "triple_lists": input_data['triple_lists'][:350],
-    #     "subqueries": input_data['subqueries'][:350],
-    # }
+    input_data = {
+        "question": input_data['question'][:1000],
+        "answer": input_data['answer'][:1000],
+        "triple_lists": input_data['triple_lists'][:1000],
+        "subqueries": input_data['subqueries'][:1000],
+    }
     data_samples = construct_data_samples(dataset, input_data, graph_processor)
+    # data_samples = data_samples[:500]
     
-    with open(f"/shared/eng/pj20/firas_data/test_datasets/answerer/{dataset}_test_output_graphllm_graphllm_answerer_data.pkl", "wb") as f:
+    # with open(f"/shared/eng/pj20/firas_data/test_datasets/answerer/{dataset}_test_output_sonnet_sonnet_answerer_data.pkl", "wb") as f:
+    with open(f"/shared/eng/pj20/firas_data/test_datasets/answerer/{dataset}_test_output_llama2-7b_sonnet_answerer_data.pkl", "wb") as f:
         pickle.dump(data_samples, f)
     
     

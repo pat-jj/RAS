@@ -52,7 +52,7 @@ def upload_to_hub(args, model_path, repo_id, token):
     # Upload the model file
     api.upload_file(
         path_or_fileobj=model_path,
-        path_in_repo=f"latest_checkpoint_epoch_{args.finetune_method}_{args.llm_frozen}.safetensors",
+        path_in_repo=f"latest_checkpoint_epoch_{args.finetune_method}_{args.llm_frozen}_v3.safetensors",
         repo_id=repo_id,
     )
     logging.info(f"Model uploaded to {repo_id}")
@@ -119,7 +119,14 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
     
     # Add checkpoint tracking
     total_steps = len(train_loader)
-    checkpoint_interval = total_steps // 16  # Save 8 times per epoch
+    # checkpoint_interval = total_steps // 16  # Save 16 times per epoch
+    checkpoint_points = {
+        int(total_steps * 0.05): 1,   # 1/20
+        int(total_steps * 0.15): 3,   # 3/20
+        int(total_steps * 0.25): 5,   # 5/20
+        int(total_steps * 0.35): 7,   # 7/20
+        int(total_steps * 0.50): 10,  # 10/20
+    }
     
     try:
         for batch_idx, batch in enumerate(progress_bar):
@@ -173,15 +180,25 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
                     })
                     
                 # Add checkpoint saving logic
-                if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
-                    model_path = os.path.join(args.output_dir, f'latest_checkpoint.safetensors')
-                    save_model(model, model_path)
-                    logging.info(f'Saved intermediate checkpoint to {model_path}')
+                # if checkpoint_interval > 0 and (batch_idx + 1) % checkpoint_interval == 0:
+                #     model_path = os.path.join(args.output_dir, f'latest_checkpoint.safetensors')
+                #     save_model(model, model_path)
+                #     logging.info(f'Saved intermediate checkpoint to {model_path}')
                     
-                # Upload to hub every 2 checkpoints
-                if checkpoint_interval > 0 and (batch_idx + 1) % (checkpoint_interval * 2) == 0:
-                    if args.hf_repo_id and args.hf_token:
-                        upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
+                # # Upload to hub every 2 checkpoints
+                # if checkpoint_interval > 0 and (batch_idx + 1) % (checkpoint_interval * 2) == 0:
+                #     if args.hf_repo_id and args.hf_token:
+                #         upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
+                current_step = batch_idx + 1
+                if current_step in checkpoint_points:
+                    position = checkpoint_points[current_step]
+                    model_path = os.path.join(args.output_dir, f'checkpoint_{position}_of_20.safetensors')
+                    safe_save_checkpoint(model, model_path)
+                    logging.info(f'Saved checkpoint at {position}/20 to {model_path} (step {current_step}/{total_steps})')
+                    
+                    # Upload to hub if credentials are provided
+                    # if args.hf_repo_id and args.hf_token:
+                    #     upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
                     
             except Exception as e:
                 logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -337,7 +354,7 @@ def main():
     parser.add_argument('--output_dir', type=str, default='/shared/eng/pj20/firas_data/action_planner/all_train/checkpoints')
     parser.add_argument('--resume_from_checkpoint', type=str, default=None, help='Path to checkpoint to resume training from')
     parser.add_argument('--max_txt_len', type=int, default=2500)
-    parser.add_argument('--max_new_tokens', type=int, default=150)  
+    parser.add_argument('--max_new_tokens', type=int, default=300)  
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=1e-5)
@@ -381,13 +398,13 @@ def main():
     logger.info("Loading datasets...")
     if args.debug:
         logger.info("Debug mode: Loading validation data only...")
-        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pkl'))
+        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_val_v2.pkl'))
         train_dataset = val_dataset  # Use validation data for training in debug mode
         args.epochs = 1  # Reduce epochs for debugging
         args.batch_size = min(4, args.batch_size)  # Smaller batch size for debugging
     else:
-        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'train.pkl'))
-        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'val.pkl'))
+        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_train_v3.pkl'))
+        val_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_val_v2.pkl'))
     
     val_dataset_small = torch.utils.data.Subset(val_dataset, range(16))
     
@@ -452,23 +469,23 @@ def main():
     )
     
     # Test model saving functionality
-    # logger.info("Testing model saving functionality...")
-    # if not test_model_saving(model, args):
-    #     logger.error("Model saving test failed. Aborting training.")
-    #     return
+    logger.info("Testing model saving functionality...")
+    if not test_model_saving(model, args):
+        logger.error("Model saving test failed. Aborting training.")
+        return
     
-    # # Test validation before starting training
-    # logger.info("Testing validation loop...")
-    # try:
-    #     logger.info("Running test validation pass...")
-    #     test_val_metrics = evaluate(model, val_loader_small)
-    #     if test_val_metrics['val_loss'] == float('inf'):
-    #         logger.error("Validation test failed - no valid batches completed")
-    #         return
-    #     logger.info("Validation test completed successfully")
-    # except Exception as e:
-    #     logger.error(f"Validation test failed with error: {str(e)}")
-    #     return
+    # Test validation before starting training
+    logger.info("Testing validation loop...")
+    try:
+        logger.info("Running test validation pass...")
+        test_val_metrics = evaluate(model, val_loader_small)
+        if test_val_metrics['val_loss'] == float('inf'):
+            logger.error("Validation test failed - no valid batches completed")
+            return
+        logger.info("Validation test completed successfully")
+    except Exception as e:
+        logger.error(f"Validation test failed with error: {str(e)}")
+        return
         
     # Verify HuggingFace access if credentials provided
     hf_upload_ok = False

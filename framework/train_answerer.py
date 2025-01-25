@@ -66,6 +66,7 @@ class AnswererDataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
+        
         return {
             'input': self.data[idx]['input'],
             'label': self.data[idx]['label'],

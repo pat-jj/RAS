@@ -32,27 +32,24 @@ class ThemeScopedRetriever:
         retrieval_mode: str = 'theme_scoped',
         debug: bool = False,
         device: str = None,
+        faiss_gpu_ids: List[int] = [1, 2, 3, 4, 6, 7],  # Use GPUs 1-4 for indices
     ):
-        """Initialize the retriever with necessary paths and models.
-        
-        Args:
-            knowledge_path: Base path containing indices and mappings
-            num_splits: Number of knowledge base splits to load
-            dense_encoder: HuggingFace model name for dense retrieval
-            theme_encoder_path: Path to theme encoder model
-            theme_shifter_path: Path to theme distribution shifter
-            retrieval_mode: 'theme_scoped' or 'dense_only'
-            debug: bool, if True, will print debug information
-            device: torch device (will auto-detect if None)
-        """
         self.knowledge_path = knowledge_path
         self.num_splits = num_splits
         self.device = device or (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
+        self.faiss_gpu_ids = faiss_gpu_ids
+        self.gpu_indices = {}
+        
+        # Initialize multiple GPU resources for FAISS
+        self.res_list = [faiss.StandardGpuResources() for _ in faiss_gpu_ids]
+        self.co = faiss.GpuClonerOptions()
+        self.co.useFloat16 = True  # Use FP16 to save GPU memory
         
         # Dictionary to store knowledge bases for each split
         self.knowledge_bases: Dict[int, KnowledgeBase] = {}
         self.retrieval_mode = retrieval_mode
         self.debug = debug
+        
         # Load knowledge bases and models
         self._load_all_knowledge()
         self._load_models(dense_encoder, theme_encoder_path, theme_shifter_path)
@@ -62,8 +59,6 @@ class ThemeScopedRetriever:
         else:
             self.retrieve = self._retrieve
             
-        self.res = faiss.StandardGpuResources()
-        self.co = faiss.GpuClonerOptions()
 
     def _load_all_knowledge(self):
         """Load FAISS indices and mappings for all splits."""
@@ -76,49 +71,29 @@ class ThemeScopedRetriever:
             
             idx_mapping = {i: i for i in range(len(text_mapping))}
             
-            if self.retrieval_mode == 'theme_scoped':
-                # Load or convert theme index to L2
-                theme_index_path = f"{self.knowledge_path}/theme_dist/theme_embeddings_{split_idx}"
-                l2_index_path = f"{theme_index_path}_l2.faiss"
-                
-                if os.path.exists(l2_index_path):
-                    theme_faiss_index = faiss.read_index(l2_index_path)
-                else:
-                    original_index = faiss.read_index(f"{theme_index_path}.faiss")
-                    theme_faiss_index = self._convert_index_to_l2(original_index)
-                    faiss.write_index(theme_faiss_index, l2_index_path)
-            else:
-                print("Using dense only retrieval mode")
-                theme_faiss_index = None
-            
             # Load dense index
             dense_faiss_index = faiss.read_index(
                 f"{self.knowledge_path}/embedding/wikipedia_embeddings_{split_idx}.faiss"
             )
             
-            if split_idx == 0:  # Move first split to GPU
-                try:
-                    gpu_index = faiss.index_cpu_to_all_gpus(dense_faiss_index)
-                    print(f"Successfully moved split {split_idx} to GPU")
-                    # try search
-                    gpu_index.search(np.random.rand(10, 768).astype('float32'), 10)
-                    print(f"Search successful")
-                    del gpu_index
-                    torch.cuda.empty_cache()
-                except RuntimeError as e:
-                    print(f"Warning: Could not move split {split_idx} to GPU: {e}")
+            # Distribute indices across available GPUs
+            gpu_idx = self.faiss_gpu_ids[split_idx % len(self.faiss_gpu_ids)]
+            res = self.res_list[split_idx % len(self.faiss_gpu_ids)]
             
-            # Optimize FAISS parameters
-            if hasattr(theme_faiss_index, 'nprobe'):
-                theme_faiss_index.nprobe = 128
-            if hasattr(dense_faiss_index, 'nprobe'):
-                dense_faiss_index.nprobe = 256
+            try:
+                gpu_index = faiss.index_cpu_to_gpu(res, gpu_idx, dense_faiss_index)
+                print(f"Successfully moved split {split_idx} to GPU {gpu_idx}")
+                self.gpu_indices[split_idx] = gpu_index
+                del dense_faiss_index  # Free CPU memory
+            except RuntimeError as e:
+                print(f"Warning: Could not move split {split_idx} to GPU {gpu_idx}: {e}")
+                self.gpu_indices[split_idx] = dense_faiss_index
             
             # Store knowledge base components
             self.knowledge_bases[split_idx] = KnowledgeBase(
                 text_mapping=text_mapping,
-                dense_faiss_index=dense_faiss_index,
-                theme_faiss_index=theme_faiss_index,
+                dense_faiss_index=None,
+                theme_faiss_index=None,
                 idx_mapping=idx_mapping
             )
             
@@ -262,26 +237,31 @@ class ThemeScopedRetriever:
         
         all_results = []
         
-        # Process each split
+        # Process each split using pre-loaded GPU indices
         for split_idx, kb in self.knowledge_bases.items():
-            # Move index to GPU temporarily
-            gpu_index = faiss.index_cpu_to_all_gpus(kb.dense_faiss_index)
+            gpu_index = self.gpu_indices[split_idx]
             
             dense_scores, dense_doc_ids = gpu_index.search(
                 query_dense_embedding.cpu().numpy(), 
                 k=top_k
             )
             
-            # Clear GPU memory
-            del gpu_index
-            torch.cuda.empty_cache()
-            
             split_results = [(kb.text_mapping[doc_id], float(score)) 
-                           for doc_id, score in zip(dense_doc_ids[0], dense_scores[0])]
+                        for doc_id, score in zip(dense_doc_ids[0], dense_scores[0])]
             all_results = [item for item in split_results if clean_document(item[0])]
+        
         # Sort all results and return top_k
         all_results.sort(key=lambda x: x[1], reverse=True)
         return all_results[:top_k]
+
+    def __del__(self):
+        """Cleanup GPU resources when the retriever is destroyed."""
+        for split_idx, gpu_index in self.gpu_indices.items():
+            try:
+                del gpu_index
+            except:
+                pass
+        torch.cuda.empty_cache()
     
     # def _dense_only_retrieve(self, query: str, top_k: int = 10) -> List[Tuple[str, float]]:
     #     """Fallback method for pure dense retrieval across all splits."""

@@ -65,7 +65,7 @@ def load_data(args):
         contexts = data['context']
         others = {key: data[key] for key in data.keys() if key not in ['question', 'context']}
     
-    if args.dataset == 'triviaqa' or args.dataset == 'popqa' or args.dataset == '2wikimultihop':
+    if args.dataset == 'triviaqa' or args.dataset == 'popqa':
         questions = questions[:1000]
         contexts = contexts[:1000]
     
@@ -228,8 +228,7 @@ def ras(args, models, question, context, graph_processor, retriever):
             triples = triples_
         else:
             # by Sonnet
-            # triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(retrieved_docs)).replace("\n", " ")
-            triples = text_to_triples_sonnet("\n".join(retrieved_docs)).replace("\n", " ")
+            triples = text_to_triples_sonnet("Question: " + question + "\nRetrieval:" + "\n".join(retrieved_docs)).replace("\n", " ")
             
             if answerer_model != "sonnet" or planner_model != "sonnet":
                 graph, triples_ = convert_triple_str_to_graph(triples, graph_processor)   
@@ -309,7 +308,7 @@ def ras(args, models, question, context, graph_processor, retriever):
         }
     
         with torch.no_grad():
-            answerer_output = answerer_model.inference(answerer_input)['pred'][0].split("")[0]
+            answerer_output = answerer_model.inference(answerer_input)['pred'][0].split("</s>")[0]
     else:
         answerer_output = answerer_sonnet(inputs[-1], max_answer_length=args.max_answer_length)
         
@@ -327,8 +326,7 @@ def ras(args, models, question, context, graph_processor, retriever):
 
 def read_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, nargs='+', default=['popqa'],
-                       help='Dataset name(s) - can be single string or list of strings')
+    parser.add_argument('--dataset', type=str, default='popqa')
     parser.add_argument('--test_data_path', type=str, default='/shared/eng/pj20/firas_data/test_datasets')
     parser.add_argument('--knowledge_source', type=str, default='wiki_2017', choices=['wiki_2017', 'wiki_2018', 'wiki_2020'])
     parser.add_argument('--knowledge_path', type=str, default='')
@@ -342,7 +340,7 @@ def read_args():
     parser.add_argument('--answerer_checkpoint', type=str, default='')
     parser.add_argument('--retrieval_mode', type=str, default='theme_and_dense', choices=['theme_and_dense', 'dense_only'])
     parser.add_argument('--max_answer_length', type=int, default=100)
-    parser.add_argument('--max_iteration', type=int, default=3)
+    parser.add_argument('--max_iteration', type=int, default=5)
     parser.add_argument('--debug', action='store_true')
     
     
@@ -368,85 +366,70 @@ def read_args():
 
 def main():
     args = read_args()
-    datasets = args.dataset if isinstance(args.dataset, list) else [args.dataset]
+    print("Loading data ...")
+    data, questions, q2c, others = load_data(args)
     
-    # Initialize retriever once for all datasets
-    if "asqa" in datasets or "eli5" in datasets:
-        print("ASQA or ELI5 task included, will skip retriever for those datasets...")
+    print("Loading models ...")
+    models = load_models(args)
+    
+    print("Loading graph processor ...")
+    graph_processor = GraphProcessor()
+    if args.dataset == "asqa" or args.dataset == "eli5":
+        print("ASQA or ELI5 task, using top 5 docs as context and no retrieval ...")
         retriever = None
     else:
-        print("Loading retriever...")
-        retriever = ThemeScopedRetriever(retrieval_mode=args.retrieval_mode, debug=args.debug)
-
-    print("Loading graph processor...")
-    graph_processor = GraphProcessor()
+        retriever = ThemeScopedRetriever(retrieval_mode=args.retrieval_mode, debug=args.debug, faiss_gpu_id=0)
     
-    print("Loading models...")
-    models = load_models(args)
+    if os.path.exists(os.path.join(args.test_data_path, args.dataset + f"_test_output_{args.planner_model}_{args.answerer_model}.json")):
+        print(f"Load existing output ...")
+        with open(os.path.join(args.test_data_path, args.dataset + f"_test_output_{args.planner_model}_{args.answerer_model}.json"), 'r') as f:
+            data = json.load(f)
+        generated_answers = data['output']
+        graphs = data['graphs']
+        triple_lists = data['triple_lists']
+        subqueries = data['subqueries']
+        inputs = data['llm_inputs']
+        processed_questions = len(generated_answers)
+        print(f"Loaded {processed_questions} questions ...")
+    else:
+        print("No existing output, starting from scratch ...")
+    
+        generated_answers = []
+        graphs = []
+        triple_lists = []
+        subqueries = []
+        inputs = []
+        processed_questions = 0
+        
+    
+    cnt = 0
+    questions = questions[processed_questions:]
+    print("Iteratively RAS ...")
+    for question in tqdm(questions):
+        # try:
+        generated_answer, graphs_, triple_lists_, subqueries_, inputs_ = ras(args, models, question, q2c[question], graph_processor, retriever)
+        generated_answers.append(generated_answer)
+        graphs.append(graphs_)
+        triple_lists.append(triple_lists_)
+        subqueries.append(subqueries_)
+        inputs.append(inputs_)
+        cnt += 1
+        if cnt % 10 == 0:
+            print(f"Processed {cnt} questions ...")
+            data['output'] = generated_answers
+            # data['graphs'] = graphs
+            data['triple_lists'] = triple_lists
+            data['subqueries'] = subqueries
+            data['llm_inputs'] = inputs
+            with open(os.path.join(args.test_data_path, args.dataset + f"_test_output_{args.planner_model}_{args.answerer_model}.json"), 'w') as f:
+                json.dump(data, f, indent=4)
+        # except Exception as e:
+        #     print(f"Error: {e}")
+        #     continue
+                
 
-    # Process each dataset
-    for dataset in datasets:
-        print(f"\nProcessing dataset: {dataset}")
-        args.dataset = dataset  # Temporarily set current dataset
-        
-        print("Loading data...")
-        data, questions, q2c, others = load_data(args)
-        
-        output_path = os.path.join(args.test_data_path, 
-                                 dataset + f"_test_output_{args.planner_model}_{args.answerer_model}_v3.json")
-        
-        if os.path.exists(output_path):
-            print(f"Load existing output for {dataset}...")
-            with open(output_path, 'r') as f:
-                data = json.load(f)
-            generated_answers = data['output']
-            graphs = data['graphs']
-            triple_lists = data['triple_lists']
-            subqueries = data['subqueries']
-            inputs = data['llm_inputs']
-            processed_questions = len(generated_answers)
-            print(f"Loaded {processed_questions} questions...")
-        else:
-            print(f"No existing output for {dataset}, starting from scratch...")
-            generated_answers = []
-            graphs = []
-            triple_lists = []
-            subqueries = []
-            inputs = []
-            processed_questions = 0
-
-        cnt = 0
-        questions = questions[processed_questions:]
-        print("Iteratively RAS...")
-        
-        # Use dataset-specific retriever based on dataset type
-        current_retriever = None if dataset in ["asqa", "eli5"] else retriever
-        
-        for question in tqdm(questions):
-            try:
-                generated_answer, graphs_, triple_lists_, subqueries_, inputs_ = ras(
-                    args, models, question, q2c[question], graph_processor, current_retriever)
-                generated_answers.append(generated_answer)
-                graphs.append(graphs_)
-                triple_lists.append(triple_lists_)
-                subqueries.append(subqueries_)
-                inputs.append(inputs_)
-                cnt += 1
-                if cnt % 10 == 0:
-                    print(f"Processed {cnt} questions...")
-                    data['output'] = generated_answers
-                    data['triple_lists'] = triple_lists
-                    data['subqueries'] = subqueries
-                    data['llm_inputs'] = inputs
-                    with open(output_path, 'w') as f:
-                        json.dump(data, f, indent=4)
-            except Exception as e:
-                print(f"Error processing question: {e}")
-                continue
-
-        # Save final results for current dataset
-        with open(output_path, 'w') as f:
-            json.dump(data, f, indent=4)
+    with open(os.path.join(args.test_data_path, args.dataset + f"_test_output_{args.planner_model}_{args.answerer_model}.json"), 'w') as f:
+        json.dump(data, f, indent=4)
 
 if __name__ == "__main__":
     main()

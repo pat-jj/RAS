@@ -5,8 +5,7 @@ import json
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import logging
-from models.graphllm import GraphLLM
-from train_answerer import improved_collate_fn
+from models.graphllm_nograph import GraphLLM
 from safetensors.torch import load_model
 import pickle
 from torch.utils.data import Dataset
@@ -79,6 +78,29 @@ def save_results(results, output_path):
         logging.error(f"Error saving results: {str(e)}")
 
 
+def improved_collate_fn(batch):
+    """
+    Improved collate function for GraphLLM that better aligns with the model's needs.
+    
+    The current GraphLLM implementation expects:
+    1. Raw input text for tokenization inside forward/inference
+    2. Raw label text for tokenization inside forward
+    3. List of graphs for each batch item
+    4. No pre-tokenization or pre-truncation of inputs/labels
+    
+    Key considerations:
+    - Model handles tokenization internally in forward() and inference()
+    - Model applies max_txt_len and max_new_tokens limits internally
+    - Model manages special tokens (BOS, EOS, EOS_USER) internally
+    - Model handles padding internally based on batch requirements
+    
+    Therefore, a simpler collate_fn is recommended:
+    """
+    return {
+        'input': [item['input'] for item in batch],
+        'label': [item['label'] for item in batch],
+    }
+    
 class AnswererDataset(Dataset):
     def __init__(self, data_path):
         self.data = pickle.load(open(data_path, 'rb'))
@@ -92,19 +114,19 @@ class AnswererDataset(Dataset):
             return {
                 'input': self.data[idx]['input'].replace("\nQuestion: ", "\n[Long Form] Question: "),
                 'label': self.data[idx]['label'],
-                'graphs': self.data[idx]['graphs']
+                # 'graphs': self.data[idx]['graphs']
             }
         elif "arc" in self.data_path:
             return {
                 'input': self.data[idx]['input'].replace("\n\nQuestion: Which is true? \n\n### Input:\n", "\n\nQuestion: Given four answer candidates, A, B, C and D, choose the best answer choice.## Input:\n\n"),
                 'label': self.data[idx]['label'],
-                'graphs': self.data[idx]['graphs']
+                # 'graphs': self.data[idx]['graphs']
             }
         else:
             return {
                 'input': self.data[idx]['input'].replace("</s>", ""),
                 'label': self.data[idx]['label'],
-                'graphs': self.data[idx]['graphs']
+                # 'graphs': self.data[idx]['graphs']
             }
         
         

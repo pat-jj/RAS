@@ -579,6 +579,11 @@ def convert_triple_str_to_list(triple_str):
                                 for triple in triple_str.split('), ')] 
     return triples
 
+def convert_triple_list_to_str(triples):
+    cleaned_triples = [triple.rstrip(')') for triple in triples]
+    return "), ".join(cleaned_triples) + ")"
+
+
 def convert_triple_str_to_graph(triple_str, graph_processor):
     triples = convert_triple_str_to_list(triple_str)
     try:

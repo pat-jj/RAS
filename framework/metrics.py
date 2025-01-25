@@ -226,7 +226,7 @@ def mauve_score(predictions, references):
         device_id=4,
         max_text_length=512,
         verbose=True,
-        batch_size=32,
+        batch_size=8,
         featurize_model_name="gpt2-large"
     )
     return mauve_results.mauve * 100

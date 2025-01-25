@@ -21,7 +21,7 @@ Rules:
 4. Avoid using pronouns (it/he/she) - always use the actual names
 5. Keep all entities in their original case (uppercase/lowercase)
 6. Make predicates clear and specific
-7. When input is only an entity, just output the entity itself
+7. When input is only an entity, output (S> ENTITY| P> is| O> ENTITY) where ENTITY is the entity in the input.
 8. [IMPORTANT] Do not include any other text in the output, only the triples or the entity (for Rule 7 case).
 
 Example Input:
