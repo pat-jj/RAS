@@ -141,6 +141,14 @@ sh run_ras.sh
 ```
 
 
+### Evaluation
+
+```bash
+cd framework
+sh eval.sh
+```
+
+
 #### Note: 
 
 To run closed-source Sonnet-3.5 in either baselines' setting or RAS, please fill in the key information in the `claude_api_example.py` file, and rename it to `claude_api.py`, and put it under both baselines/ and framework/.
