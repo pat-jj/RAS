@@ -2,6 +2,7 @@
 
 This is the official implementation of the RAS paper.
 
+![alt text](/images/overview.png "Overview of RAS")
 ---
 ### Table of Contents
 - [Environment Setup](#environment-setup)
