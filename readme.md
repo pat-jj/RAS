@@ -1,4 +1,4 @@
-# RAS: Enhanced Knowledge-Intensive LLM Generation with Iterative Retrieval-And-Structure
+# RAS: Retrieval-And-Structuring for Knowledge-Intensive LLM Generation
 
 This is the official implementation of the RAS paper.
 

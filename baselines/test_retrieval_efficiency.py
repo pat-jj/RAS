@@ -1,9 +1,18 @@
+# Move these to the very top of the file, before any other imports
+import os
+os.environ["OMP_NUM_THREADS"] = "1"  # OpenMP threads
+
 import time
 import numpy as np
 from typing import Dict
 import faiss
 from tqdm import tqdm
 import argparse
+
+# After FAISS import, verify thread settings
+faiss.omp_set_num_threads(1)         # FAISS threads
+print(f"FAISS number of threads: {faiss.omp_get_max_threads()}")
+print(f"OpenMP number of threads: {os.environ.get('OMP_NUM_THREADS')}")
 
 class RetrievalExperiment:
     def __init__(self, num_docs: int = 35_000_000, dense_dim: int = 768, theme_dim: int = 298):
@@ -70,14 +79,21 @@ class RetrievalExperiment:
             print(f"\nTrial {trial + 1}/{n_trials}")
             
             # Skip dense-only if time was provided
-            if dense_only_time is None:
-                # Dense-only retrieval timing
-                start_time = time.perf_counter()
-                for query in tqdm(dense_queries, desc="Dense-only retrieval"):
-                    _, _ = self.dense_index.search(query.reshape(1, -1), dense_top_k)
-                dense_time = time.perf_counter() - start_time
-                dense_times.append(dense_time)
-                print(f"Dense-only time: {dense_time:.2f}s")
+            # if dense_only_time is None:
+            # Dense-only retrieval timing
+            start_time = time.perf_counter()
+            for i, query in enumerate(tqdm(dense_queries, desc="Dense-only retrieval")):
+                query_start = time.perf_counter()
+                _, _ = self.dense_index.search(query.reshape(1, -1), dense_top_k)
+                query_time = time.perf_counter() - query_start
+                if i == 0:  # Print timing for first query
+                    print(f"\nFirst dense query time: {query_time:.3f}s")
+                    print(f"Index size: {self.dense_index.ntotal:,} vectors")
+                    print(f"FAISS threads: {faiss.omp_get_max_threads()}")
+            dense_time = time.perf_counter() - start_time
+            dense_times.append(dense_time)
+            print(f"Dense-only time: {dense_time:.2f}s")
+            print(f"Average time per query: {dense_time/n_queries:.3f}s")
             
             # Theme-scoped retrieval timing
             start_time = time.perf_counter()
@@ -149,7 +165,7 @@ def main():
     parser.add_argument('--theme_top_k', type=int, default=100000)
     parser.add_argument('--dense_top_k', type=int, default=100)
     parser.add_argument('--n_trials', type=int, default=5)
-    parser.add_argument('--dense_only_time', type=float, default=2317.35)  # Add previous dense-only time
+    parser.add_argument('--dense_only_time', type=float)  # Add previous dense-only time
     args = parser.parse_args()
     
     experiment = RetrievalExperiment(num_docs=args.num_docs)
