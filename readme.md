@@ -1,5 +1,6 @@
 # RAS: Enhanced Knowledge-Intensive LLM Generation with Iterative Retrieval-And-Structure
 
+---
 ### Table of Contents
 - [Environment Setup](#environment-setup)
 - [Train Theme Classifier and Distribution Shifter](#train-theme-classifier-and-distribution-shifter)
@@ -13,8 +14,8 @@
 - [Knowledge Indexing](#knowledge-indexing-prepare-both-theme-and-dense-faiss-indexes)
 - [Run Baselines](#run-baselines)
 - [Run RAS](#run-ras)
-
 ---
+
 ### Environment Setup
 
 Please follow the commands below (in exact order) to setup the environment.
@@ -140,6 +141,6 @@ sh run_ras.sh
 ```
 
 
-#### Note: To run closed-source Sonnet-3.5 in either baselines' setting or RAS, please fill in the key information in the `claude_api_example.py` file, and rename it to `claude_api.py`, and put it under both baselines/ and framework/.
+#### Note: 
 
----
+To run closed-source Sonnet-3.5 in either baselines' setting or RAS, please fill in the key information in the `claude_api_example.py` file, and rename it to `claude_api.py`, and put it under both baselines/ and framework/.
