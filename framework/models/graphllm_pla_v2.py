@@ -20,7 +20,7 @@ class GraphLLM(torch.nn.Module):
             # "max_memory": {0: '0GiB', 1: '20GiB', 2: '20GiB', 4: '20GiB'},
             # "max_memory": {0: '25GiB', 1: '10GiB', 2: '10GiB', 3: '15GiB', 4: '10GiB', 5: '5GiB', 6: '5GiB', 7: '10GiB'},
             # "max_memory": {0: '0GiB', 1: '10GiB', 2: '10GiB', 3: '20GiB', 4: '20GiB'},
-            "max_memory": {0: '40GiB', 1: '40GiB', 2: '40GiB', 3: '40GiB'},
+            "max_memory": {0: '60GiB', 1: '60GiB', 2: '60GiB', 3: '60GiB'},
             # "max_memory": {1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB'},
             "device_map": "auto",
             "revision": "main",

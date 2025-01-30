@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import logging
 import argparse
-from models.graphllm_pla_v2 import GraphLLM
+from models.graphllm import GraphLLM
 from torch.optim import AdamW
 import wandb
 from tqdm import tqdm
@@ -126,6 +126,8 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
         int(total_steps * 0.25): 5,   # 5/20
         int(total_steps * 0.35): 7,   # 7/20
         int(total_steps * 0.50): 10,  # 10/20
+        int(total_steps * 0.75): 15,  # 15/20
+        int(total_steps * 1): 20,  # 20/20
     }
     
     try:

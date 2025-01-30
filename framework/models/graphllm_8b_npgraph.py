@@ -17,10 +17,11 @@ class GraphLLM(torch.nn.Module):
 
         print('Loading LLAMA')
         kwargs = {
-            # "max_memory": {0: '0GiB', 1: '20GiB', 2: '20GiB', 4: '20GiB'},
-            # "max_memory": {0: '25GiB', 1: '10GiB', 2: '10GiB', 3: '15GiB', 4: '10GiB', 5: '5GiB', 6: '5GiB', 7: '10GiB'},
+            # "max_memory": {0: '7GiB', 1: '7GiB', 2: '7GiB', 3: '7GiB', 4: '7GiB', 5: '7GiB', 6: '7GiB', 7: '7GiB'},
+            "max_memory": {0: '30GiB', 1: '30GiB'},
+            # "max_memory": {0: '0GiB', 1: '30GiB', 2: '10GiB', 3: '10GiB', 4: '10GiB'},
             # "max_memory": {0: '0GiB', 1: '10GiB', 2: '10GiB', 3: '20GiB', 4: '20GiB'},
-            "max_memory": {0: '60GiB', 1: '60GiB', 2: '60GiB', 3: '60GiB'},
+            # "max_memory": {0: '30GiB', 1: '30GiB', 2: '30GiB', 3: '30GiB'},
             # "max_memory": {1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB'},
             "device_map": "auto",
             "revision": "main",
@@ -38,9 +39,8 @@ class GraphLLM(torch.nn.Module):
         self.eos_token = self.tokenizer.eos_token
         
         # Construct chat format tokens
-        self.BOS = '<s>[INST]'
-        self.EOS_USER = '[/INST]'
-        self.EOS = '</s>'
+        self.BOS = '<|begin_of_text|>'
+        self.EOS = '<|end_of_text|>'
         self.IGNORE_INDEX = -100
 
         # Load base model
@@ -76,62 +76,10 @@ class GraphLLM(torch.nn.Module):
         self.model = model
         print('Finish loading LLAMA!')
 
-        # Graph encoder setup
-        self.graph_encoder = load_gnn_model[args.gnn_model_name](
-            in_channels=args.gnn_in_dim,
-            out_channels=args.gnn_hidden_dim,
-            hidden_channels=args.gnn_hidden_dim,
-            num_layers=args.gnn_num_layers,
-            dropout=args.gnn_dropout,
-            num_heads=args.gnn_num_heads,
-        ).to(self.model.device)
-
-        self.projector = nn.Sequential(
-            nn.Linear(args.gnn_hidden_dim, 2048),
-            nn.Sigmoid(),
-            nn.Linear(2048, 4096),
-        ).to(self.model.device)
 
         self.word_embedding = self.model.model.get_input_embeddings()
         
-        self.no_graph_embedding = nn.Parameter(
-        torch.randn(1, 1, args.gnn_hidden_dim) / math.sqrt(args.gnn_hidden_dim)
-        )
-        self.graph_attention = nn.MultiheadAttention(
-            embed_dim=args.gnn_hidden_dim,
-            num_heads=4,
-            batch_first=True
-        )
 
-    def encode_graphs(self, graphs_list):
-        """
-        Encode graphs for the planner, handling empty graph lists
-        """
-        if not graphs_list:
-            # Return zero tensor if no graphs
-            return torch.zeros((1, 1, self.projector[0].in_features), device=self.model.device)
-            
-        graph_embeds = []
-        for graph in graphs_list:
-            try:
-                graph = graph.to(self.model.device)
-                n_embeds, _ = self.graph_encoder(graph.x, graph.edge_index.long(), graph.edge_attr)
-                # Mean pooling for each graph
-                g_embed = scatter(n_embeds, 
-                                torch.zeros(n_embeds.size(0), dtype=torch.long, device=self.model.device),
-                                dim=0,
-                                reduce='mean')
-                graph_embeds.append(g_embed)
-            except (AttributeError, ValueError) as e:
-                print(f"Warning: Error processing graph: {e}")
-                continue
-        
-        if not graph_embeds:  # If all graphs failed processing
-            return torch.zeros((1, 1, self.projector[0].in_features), device=self.model.device)
-        
-        # Stack and mean pool across graphs
-        g_embeds = torch.stack(graph_embeds).mean(dim=0)  # [1, hidden_dim]
-        return g_embeds.unsqueeze(0)  # [1, 1, hidden_dim]
     
     def forward(self, samples):
         # Tokenize inputs and labels
@@ -140,7 +88,6 @@ class GraphLLM(torch.nn.Module):
 
         # Get special token ids
         eos_tokens = self.tokenizer(self.EOS, add_special_tokens=False)
-        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
             self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
         ).to(self.model.device)
@@ -151,27 +98,18 @@ class GraphLLM(torch.nn.Module):
         batch_attention_mask = []
         batch_label_input_ids = []
 
-        # First pass - get all embeddings and lengths
         for i in range(batch_size):
-            # Encode graphs
-            graph_embeds = self.encode_graphs(samples['graphs'][i])  # [1, 1, hidden_dim]
-            assert graph_embeds.size(-1) == self.projector[0].in_features, \
-                f"Graph embedding dimension mismatch: {graph_embeds.size(-1)} vs {self.projector[0].in_features}"
-            graph_embeds = self.projector(graph_embeds.squeeze(1))  # [1, proj_dim]
-
-            # Prepare label sequence first (following G-Retriever)
+            # Prepare label sequence
             label_input_ids = labels.input_ids[i][:self.max_new_tokens] + eos_tokens.input_ids
 
-            # Now include label in input sequence (G-Retriever style)
+            # Include label in input sequence
             input_ids = (inputs.input_ids[i][:self.max_txt_len] + 
-                        eos_user_tokens.input_ids + 
-                        label_input_ids)  # Include labels in input
+                        label_input_ids)
 
             # Create embeddings
             inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
             inputs_embeds = torch.cat([
                 bos_embeds,
-                graph_embeds,
                 inputs_embeds
             ], dim=0)
 
@@ -210,7 +148,6 @@ class GraphLLM(torch.nn.Module):
         inputs = self.tokenizer(samples['input'], add_special_tokens=False)
         
         # encode special tokens
-        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
             self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
         ).to(self.model.device)
@@ -221,18 +158,13 @@ class GraphLLM(torch.nn.Module):
         batch_attention_mask = []
         
         for i in range(batch_size):
-            # Encode graphs for this sample
-            graph_embeds = self.encode_graphs(samples['graphs'][i])  # [1, 1, hidden_dim]
-            graph_embeds = self.projector(graph_embeds.squeeze(1))  # [1, proj_dim]
-            
             # Add special tokens and create input embeddings
-            input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
+            input_ids = inputs.input_ids[i][:self.max_txt_len]
             inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
             
-            # Concatenate all embeddings
+            # Concatenate embeddings
             inputs_embeds = torch.cat([
                 bos_embeds,
-                graph_embeds,
                 inputs_embeds
             ], dim=0)
             
@@ -261,21 +193,7 @@ class GraphLLM(torch.nn.Module):
                 max_new_tokens=self.max_new_tokens,
                 attention_mask=attention_mask,
                 use_cache=True, 
-                # pad_token_id=self.tokenizer.pad_token_id,
-                # eos_token_id=self.tokenizer.eos_token_id,
             )
-            # outputs = self.model.generate(
-            #     inputs_embeds=inputs_embeds,
-            #     max_new_tokens=self.max_new_tokens,
-            #     attention_mask=attention_mask,
-            #     use_cache=True,
-            #     # Add these parameters:
-            #     temperature=0.7,  # Lower temperature for more focused sampling
-            #     top_p=0.9,       # Nucleus sampling parameter
-            #     top_k=50,        # Limit vocabulary to top K tokens
-            #     num_beams=3,     # Use beam search
-            #     do_sample=True,  # Enable sampling
-            # )
 
         predictions = self.tokenizer.batch_decode(outputs, skip_special_tokens=False, clean_up_tokenization_spaces=False)
         

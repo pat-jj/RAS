@@ -309,34 +309,34 @@ def ckpt_cleanup(output_path):
 def main():
     mp.set_start_method('spawn')
     
-    # data_dir = '/shared/eng/pj20/firas_data/datasets/classifier_labeling_data'
+    data_dir = '/shared/eng/pj20/firas_data/datasets/classifier_labeling_data'
     checkpoint_path = '/shared/eng/pj20/firas_data/classifiers/best_model'
     
     # # Process queries
-    # queries_path = f"{data_dir}/queries_hotpot.json"
-    # with open(queries_path, 'r') as f:
-    #     queries = json.load(f)
+    queries_path = f"{data_dir}/queries_hotpot.json"
+    with open(queries_path, 'r') as f:
+        queries = json.load(f)
     
-    # output_path = f'{data_dir}/query_class_probabilities.csv'
-    # print("\nProcessing queries...")
-    # results = get_class_probabilities(queries, checkpoint_path, output_path)
-    # results.to_csv(output_path, index=False)
-    # print(f"Results saved to {output_path}")
-    # # remove all checkpoints
-    # ckpt_cleanup(output_path)
+    output_path = f'{data_dir}/query_class_probabilities.csv'
+    print("\nProcessing queries...")
+    results = get_class_probabilities(queries, checkpoint_path, output_path)
+    results.to_csv(output_path, index=False)
+    print(f"Results saved to {output_path}")
+    # remove all checkpoints
+    ckpt_cleanup(output_path)
     
-    # # Process documents
-    # documents_path = f"{data_dir}/documents_hotpot.json"
-    # with open(documents_path, 'r') as f:
-    #     documents = json.load(f)
+    # Process documents
+    documents_path = f"{data_dir}/documents_hotpot.json"
+    with open(documents_path, 'r') as f:
+        documents = json.load(f)
     
-    # output_path = f'{data_dir}/document_class_probabilities.csv'
-    # print("\nProcessing documents...")
-    # results = get_class_probabilities(documents, checkpoint_path, output_path)
-    # results.to_csv(output_path, index=False)
-    # print(f"Results saved to {output_path}")
-    # # remove all checkpoints
-    # ckpt_cleanup(output_path)
+    output_path = f'{data_dir}/document_class_probabilities.csv'
+    print("\nProcessing documents...")
+    results = get_class_probabilities(documents, checkpoint_path, output_path)
+    results.to_csv(output_path, index=False)
+    print(f"Results saved to {output_path}")
+    # remove all checkpoints
+    ckpt_cleanup(output_path)
     
     # Process Wiki
     # data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2017/all_wiki_text.json"
@@ -345,27 +345,27 @@ def main():
     # data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2018/all_wiki_text.json"
     # data_dir = '/shared/eng/pj20/firas_data/knowledge_source/wiki_2018'
     
-    data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/all_wiki_text.json"
-    # data_dir = '/shared/eng/pj20/firas_data/knowledge_source'
+    # data_path = "/shared/eng/pj20/firas_data/knowledge_source/wiki_2020/all_wiki_text.json"
+    # # data_dir = '/shared/eng/pj20/firas_data/knowledge_source'
     
-    print(f"Loading data from {data_path}")
-    with open(data_path, 'r') as f:
-        wiki_text = json.load(f)
+    # print(f"Loading data from {data_path}")
+    # with open(data_path, 'r') as f:
+    #     wiki_text = json.load(f)
     
-    existing_file = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020_.csv'
-    output_path = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020.csv'
-    print("\nProcessing Wiki text...")
-    results = get_class_probabilities(
-        wiki_text, 
-        checkpoint_path, 
-        output_path, 
-        existing_file=existing_file,
-        save_interval=500000
-    )
-    results.to_csv(output_path, index=False)
-    print(f"Results saved to {output_path}")
-    # remove all checkpoints
-    ckpt_cleanup(output_path)
+    # existing_file = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020_.csv'
+    # output_path = '/shared/eng/pj20/firas_data/knowledge_source/wiki_class_probabilities_2020.csv'
+    # print("\nProcessing Wiki text...")
+    # results = get_class_probabilities(
+    #     wiki_text, 
+    #     checkpoint_path, 
+    #     output_path, 
+    #     existing_file=existing_file,
+    #     save_interval=500000
+    # )
+    # results.to_csv(output_path, index=False)
+    # print(f"Results saved to {output_path}")
+    # # remove all checkpoints
+    # ckpt_cleanup(output_path)
 
 if __name__ == "__main__":
     main()

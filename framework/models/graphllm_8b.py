@@ -17,11 +17,12 @@ class GraphLLM(torch.nn.Module):
 
         print('Loading LLAMA')
         kwargs = {
-            # "max_memory": {0: '0GiB', 1: '20GiB', 2: '20GiB', 4: '20GiB'},
+            "max_memory": {0: '30GiB', 1: '30GiB'},
             # "max_memory": {0: '25GiB', 1: '10GiB', 2: '10GiB', 3: '15GiB', 4: '10GiB', 5: '5GiB', 6: '5GiB', 7: '10GiB'},
             # "max_memory": {0: '0GiB', 1: '10GiB', 2: '10GiB', 3: '20GiB', 4: '20GiB'},
-            "max_memory": {0: '60GiB', 1: '60GiB', 2: '60GiB', 3: '60GiB'},
+            # "max_memory": {0: '30GiB', 1: '30GiB', 2: '30GiB', 3: '30GiB', 4: '30GiB', 5: '30GiB'},
             # "max_memory": {1: '40GiB', 2: '40GiB', 3: '40GiB', 4: '40GiB', 5: '40GiB'},
+            # "max_memory": {0: '7GiB', 1: '7GiB', 2: '7GiB', 3: '7GiB', 4: '7GiB', 5: '7GiB', 6: '7GiB', 7: '7GiB'},
             "device_map": "auto",
             "revision": "main",
         }
@@ -38,9 +39,8 @@ class GraphLLM(torch.nn.Module):
         self.eos_token = self.tokenizer.eos_token
         
         # Construct chat format tokens
-        self.BOS = '<s>[INST]'
-        self.EOS_USER = '[/INST]'
-        self.EOS = '</s>'
+        self.BOS = '<|begin_of_text|>'
+        self.EOS = '<|end_of_text|>'
         self.IGNORE_INDEX = -100
 
         # Load base model
@@ -140,7 +140,7 @@ class GraphLLM(torch.nn.Module):
 
         # Get special token ids
         eos_tokens = self.tokenizer(self.EOS, add_special_tokens=False)
-        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
+        # eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
             self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
         ).to(self.model.device)
@@ -164,7 +164,7 @@ class GraphLLM(torch.nn.Module):
 
             # Now include label in input sequence (G-Retriever style)
             input_ids = (inputs.input_ids[i][:self.max_txt_len] + 
-                        eos_user_tokens.input_ids + 
+                        # eos_user_tokens.input_ids + 
                         label_input_ids)  # Include labels in input
 
             # Create embeddings
@@ -210,7 +210,7 @@ class GraphLLM(torch.nn.Module):
         inputs = self.tokenizer(samples['input'], add_special_tokens=False)
         
         # encode special tokens
-        eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
+        # eos_user_tokens = self.tokenizer(self.EOS_USER, add_special_tokens=False)
         bos_embeds = self.word_embedding(
             self.tokenizer(self.BOS, add_special_tokens=False, return_tensors='pt').input_ids[0]
         ).to(self.model.device)
@@ -226,7 +226,7 @@ class GraphLLM(torch.nn.Module):
             graph_embeds = self.projector(graph_embeds.squeeze(1))  # [1, proj_dim]
             
             # Add special tokens and create input embeddings
-            input_ids = inputs.input_ids[i][:self.max_txt_len] + eos_user_tokens.input_ids
+            input_ids = inputs.input_ids[i][:self.max_txt_len]
             inputs_embeds = self.word_embedding(torch.tensor(input_ids).to(self.model.device))
             
             # Concatenate all embeddings

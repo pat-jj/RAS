@@ -5,10 +5,13 @@ import json
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import logging
-from models.graphllm_pla_v2 import GraphLLM
-from framework.train import PlannerDataset
+from models.graphllm_8b import GraphLLM
+# from models.graphllm_8b_npgraph import GraphLLM
+from train_answerer import improved_collate_fn
 from safetensors.torch import load_model
-from framework.train import improved_collate_fn
+import pickle
+from torch.utils.data import Dataset
+
 
 def setup_logging():
     """Setup logging configuration"""
@@ -32,6 +35,12 @@ def load_trained_model(args, checkpoint_path):
     except Exception as e:
         logging.error(f"Error loading checkpoint: {str(e)}")
         raise
+    
+def load_base_model(args):
+    """Load base model without trained weights"""
+    model = GraphLLM(args)
+    logging.info("Testing with base LLaMA-2-7B model and untrained GNN")
+    return model
 
 def run_inference(model, test_loader):
     """Run inference on test data"""
@@ -47,12 +56,12 @@ def run_inference(model, test_loader):
                 for i in range(len(outputs['input'])):
                     result = {
                         'input': outputs['input'][i],
-                        'prediction': outputs['pred'][i].split("</s>")[0],
+                        'prediction': outputs['pred'][i].split("<|end_of_text|>")[0],
                         'label': outputs['label'][i]
                     }
                     all_results.append(result)
                     print(f"INPUT: {outputs['input'][i]}")
-                    print(f"PREDICTION: {outputs['pred'][i].split('</s>')[0]}")
+                    print(f"PREDICTION: {outputs['pred'][i].split('<|end_of_text|>')[0]}")
                     print(f"LABEL: {outputs['label'][i]}")
                     
             except Exception as e:
@@ -70,10 +79,40 @@ def save_results(results, output_path):
     except Exception as e:
         logging.error(f"Error saving results: {str(e)}")
 
+
+class AnswererDataset(Dataset):
+    def __init__(self, data_path):
+        self.data = pickle.load(open(data_path, 'rb'))
+        self.data_path = data_path
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        if "asqa" in self.data_path or "eli5" in self.data_path:
+            return {
+                'input': self.data[idx]['input'].replace("\nQuestion: ", "\n[Long Form] Question: "),
+                'label': self.data[idx]['label'],
+                'graphs': self.data[idx]['graphs']
+            }
+        elif "arc" in self.data_path:
+            return {
+                'input': self.data[idx]['input'].replace("\n\nQuestion: Which is true? \n\n### Input:\n", "\n\nQuestion: Given four answer candidates, A, B, C and D, choose the best answer choice.## Input:\n\n"),
+                'label': self.data[idx]['label'],
+                'graphs': self.data[idx]['graphs']
+            }
+        else:
+            return {
+                'input': self.data[idx]['input'].replace("</s>", ""),
+                'label': self.data[idx]['label'],
+                'graphs': self.data[idx]['graphs']
+            }
+        
+        
 def main():
     parser = argparse.ArgumentParser()
     # Model arguments (must match training arguments)
-    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Llama-2-7b-hf')
+    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Meta-Llama-3-8B')
     parser.add_argument('--llm_frozen', type=str, default='False')
     parser.add_argument('--finetune_method', type=str, default='lora')
     parser.add_argument('--gnn_model_name', type=str, default='gt')
@@ -83,13 +122,13 @@ def main():
     parser.add_argument('--gnn_dropout', type=float, default=0.1)
     parser.add_argument('--gnn_num_heads', type=int, default=8)
     parser.add_argument('--max_txt_len', type=int, default=2500)
-    parser.add_argument('--max_new_tokens', type=int, default=150)  
+    parser.add_argument('--max_new_tokens', type=int, default=300)
     
-    # Test specific arguments
+    
     parser.add_argument('--lora_r', type=int, default=8)
     parser.add_argument('--lora_alpha', type=int, default=16)
     parser.add_argument('--lora_dropout', type=float, default=0.05)
-    
+    # Test specific arguments
     parser.add_argument('--checkpoint_path', type=str, required=True,
                         help='Path to model checkpoint')
     parser.add_argument('--test_data_path', type=str, required=True,
@@ -97,8 +136,6 @@ def main():
     parser.add_argument('--output_path', type=str, required=True,
                         help='Path to save results JSON')
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--num_test_samples', type=int, default=100,
-                        help='Number of test samples to process')
     
     args = parser.parse_args()
     
@@ -108,24 +145,24 @@ def main():
     # Load model
     logger.info("Loading model...")
     model = load_trained_model(args, args.checkpoint_path)
+    # model = load_base_model(args)
     
     # Load test dataset
     logger.info("Loading test dataset...")
-    test_dataset = PlannerDataset(args.test_data_path)
-    test_dataset_small = torch.utils.data.Subset(test_dataset, range(args.num_test_samples))
+    test_dataset_small = AnswererDataset(args.test_data_path)
+    # test_dataset_small = torch.utils.data.Subset(test_dataset_small, range(100))
     
     # Create test dataloader
-    test_loader_small = DataLoader(
+    test_loader = DataLoader(
         test_dataset_small,
         batch_size=args.batch_size,
         shuffle=False,
-        drop_last=True,
         collate_fn=improved_collate_fn
     )
     
     # Run inference
     logger.info("Running inference...")
-    results = run_inference(model, test_loader_small)
+    results = run_inference(model, test_loader)
     
     # Save results
     logger.info("Saving results...")

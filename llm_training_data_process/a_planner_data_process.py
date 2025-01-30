@@ -303,17 +303,12 @@ class GraphProcessor:
 
 
 def get_instruction():
-# """You are a planner to determine if the question can be answered with current information.
-# You will be output [NO_RETRIEVAL] if the question can be directly answered with the question itself.
-# You will be output [SUBQ] with the subquery if the question needs a subquery.
-# You will be output [SUFFICIENT] if the question can be answered with provided information.
-# """
+
     return """You are a planner to determine if the question can be answered with current information and output the appropriate label as well as the subquery if needed.
 Output [NO_RETRIEVAL] if the question can be directly answered with the question itself without any retrieval.
 Output [SUBQ] with an subquery for retrieval if still needs a subquery.
 Output [SUFFICIENT] if the question can be answered with the provided information.
 """
-# Output [SUBQ] with the question itself if it can be answered with retrieval by the question itself.
 
 def load_processed_data(output_dir):
     """Load data from pickle files"""
@@ -346,7 +341,6 @@ def main():
         print("Loading HotpotQA data ...")
         hotpotqa_filtered_data, question_set, question_to_docs, question_to_subqueries = load_hotpotqa_filtered_data('/shared/eng/pj20/firas_data/datasets/hotpotqa/filtered/hotpot_filtered.json')
         q_direct_answered = load_hotpotqa_questions_can_be_directly_answered('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/subquery_classification.json')
-        q_retrieval_answered = load_hotpotqa_questions_can_be_answered_with_single_retrieval('/shared/eng/pj20/firas_data/datasets/hotpotqa/llama_subquery_data/retrieval_classification.json')
         text_to_triples = load_text_to_triples('/shared/eng/pj20/firas_data/graph_data/hotpotqa/text_triples.json')
         
         print("Loading SelfRAG data ...")

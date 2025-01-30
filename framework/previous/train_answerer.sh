@@ -14,7 +14,6 @@
 #     --data_dir /shared/eng/pj20/firas_data/answerer/all_train \
 #     --output_dir /shared/eng/pj20/firas_data/answerer/all_train/checkpoints_p_tune \
 #     --hf_repo_id pat-jj/ras_answerer \
-#     --hf_token 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 \
 #     --epochs 10 \
 #     --llm_frozen True
 
@@ -25,7 +24,6 @@ python train_answerer.py \
     --data_dir /shared/eng/pj20/firas_data/answerer/all_train \
     --output_dir /shared/eng/pj20/firas_data/answerer/all_train/checkpoints_lora_v3 \
     --hf_repo_id pat-jj/ras_answerer \
-    --hf_token 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 \
     --epochs 6 \
     --llm_frozen True \
     --resume_from_checkpoint /shared/eng/pj20/firas_data/answerer/all_train/checkpoints_p_tune/emergency_checkpoint.safetensors
