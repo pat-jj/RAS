@@ -1,5 +1,6 @@
 # RAS: Enhanced Knowledge-Intensive LLM Generation with Iterative Retrieval-And-Structure
 
+This is the official implementation of the RAS paper.
 ---
 ### Table of Contents
 - [Environment Setup](#environment-setup)
@@ -14,6 +15,7 @@
 - [Knowledge Indexing](#knowledge-indexing-prepare-both-theme-and-dense-faiss-indexes)
 - [Run Baselines](#run-baselines)
 - [Run RAS](#run-ras)
+- [Evaluation](#evaluation)
 ---
 
 ### Environment Setup
@@ -143,12 +145,10 @@ sh run_ras.sh
 
 ### Evaluation
 
-```bash
-cd framework
-sh eval.sh
-```
+run the `eval.ipynb` file in the `framework/` folder.
 
+Uncomment the metrics you want to evaluate on.
 
 #### Note: 
 
-To run closed-source Sonnet-3.5 in either baselines' setting or RAS, please fill in the key information in the `claude_api_example.py` file, and rename it to `claude_api.py`, and put it under both baselines/ and framework/.
+To run closed-source Sonnet-3.5 in either baselines' setting or RAS, please fill in the key information in the `claude_api_example.py` file, and rename it to `claude_api.py`, and put it under both `baselines/` and `framework/`.
