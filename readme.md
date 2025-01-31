@@ -120,10 +120,16 @@ sh test_answerer.sh
 ### Knowledge Indexing (Prepare both Theme and Dense Faiss Indexes)
 
 ```bash
-cd knowledge_indexing/theme
+# Download corpora
+cd knowledge_indexing
+sh download_corpora.sh
+
+# Theme Indexing
+cd theme
 sh class_labeling.sh
 sh convert.sh
 
+# Dense Indexing
 cd ../dense
 sh dense_index.sh
 sh combine.sh

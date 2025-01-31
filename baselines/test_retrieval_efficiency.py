@@ -105,13 +105,9 @@ class RetrievalExperiment:
                     theme_q.reshape(1, -1), k=theme_top_k
                 )
                 
-                # Then search in dense space using reconstruct_n for batch reconstruction
+                # Then search in dense space by reconstructing vectors
                 dense_candidates = np.empty((len(theme_doc_ids[0]), self.dense_dim), dtype='float32')
-                self.dense_index.reconstruct_n(
-                    int(theme_doc_ids[0][0]),  # starting index
-                    len(theme_doc_ids[0]),     # number of vectors
-                    dense_candidates           # output array
-                )
+                self.dense_index.reconstruct_batch(theme_doc_ids[0], dense_candidates)
                 
                 temp_index = faiss.IndexFlatIP(self.dense_dim)
                 temp_index.add(dense_candidates)
