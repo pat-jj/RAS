@@ -199,8 +199,8 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args):
                     logging.info(f'Saved checkpoint at {position}/20 to {model_path} (step {current_step}/{total_steps})')
                     
                     # Upload to hub if credentials are provided
-                    # if args.hf_repo_id and args.hf_token:
-                    #     upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
+                    if args.hf_repo_id and args.hf_token:
+                        upload_to_hub(args, model_path, args.hf_repo_id, args.hf_token)
                     
             except Exception as e:
                 logging.error(f"Error in batch {batch_idx}: {str(e)}")
