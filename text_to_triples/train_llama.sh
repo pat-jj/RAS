@@ -1,0 +1,1 @@
+accelerate launch train_llama.py --num_processes 3
