@@ -17,3 +17,4 @@ triple_gen.py
 eval_.ipynb
 plot
 train_llama.sh
+play.py

@@ -405,7 +405,7 @@ def main():
         args.epochs = 1  # Reduce epochs for debugging
         args.batch_size = min(4, args.batch_size)  # Smaller batch size for debugging
     else:
-        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_train_v3.pkl'))
+        train_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_train_v4.pkl'))
         val_dataset = PlannerDataset(os.path.join(args.data_dir, 'combined_val_v2.pkl'))
     
     val_dataset_small = torch.utils.data.Subset(val_dataset, range(16))

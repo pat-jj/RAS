@@ -106,8 +106,7 @@ python b_answerer_data_process.py
 #### [Train]
 ```bash
 cd framework
-sh train_planner.sh
-sh train_answerer.sh
+sh train.sh # or train_8b.sh for 8B model
 ```
 
 #### [Test] (w/ hotpotqa-subq validation data)

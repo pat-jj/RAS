@@ -17,7 +17,7 @@ wandb.init(project="text2triplet", name="llama-3.2-3b-finetune", mode="online")
 
 # Constants
 MAX_SEQ_LENGTH = 2048
-MODEL_NAME = "unsloth/Llama-3.2-3B-Instruct"
+MODEL_NAME = "unsloth/Llama-3.2-3B-Instruct" 
 OUTPUT_DIR = "/shared/eng/pj20/firas_data/text2triple_llama_model"
 HF_TOKEN = "HF_TOKEN"  # Replace with actual token
 
