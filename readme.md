@@ -1,6 +1,6 @@
 # RAS: Retrieval-And-Structuring for Knowledge-Intensive LLM Generation
 
-This is the official implementation of the RAS paper.
+This is the official implementation of the [RAS paper](https://arxiv.org/abs/2502.10996).
 
 ![alt text](/images/overview.png "Overview of RAS")
 ---
@@ -73,6 +73,10 @@ sh train.sh
 
 
 ### Training Data (HotpotQA-SUBQ) Processing
+You can download the processed data from [here](https://huggingface.co/datasets/pat-jj/ras_train_data/tree/main).
+
+Alternatively, you can process the data by yourself as follows:
+
 First, download hotpotqa training set from [here](http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_train_v1.1.json).
 
 Then, run the following commands to process the training data.
