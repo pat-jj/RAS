@@ -1,14 +1,9 @@
 # RAS: Retrieval-And-Structuring for Knowledge-Intensive LLM Generation
 
-This is the official implementation of the [RAS paper](https://arxiv.org/abs/2502.10996).
-
 ![alt text](/images/overview.png "Overview of RAS")
 ---
 ### Table of Contents
 - [Environment Setup](#environment-setup)
-- [Train Theme Classifier and Distribution Shifter](#train-theme-classifier-and-distribution-shifter)
-  - [Train](#train)
-  - [Test](#test)
 - [Train Text-to-Triples Model](#train-text-to-triples-model)
 - [Training Data (HotpotQA-SUBQ) Processing](#training-data-hotpotqa-subq-processing)
 - [Train GraphLLM by Multi-task Learning](#train-graphllm-by-multi-task-learning-w-processed-training-data)
@@ -43,7 +38,7 @@ pip install transformers wandb tqdm peft accelerate bitsandbytes sentencepiece
 ```
 
 
-### Train Theme Classifier and Distribution Shifter
+<!-- ### Train Theme Classifier and Distribution Shifter
 
 First, download DBPedia-298 dataset from [here](https://www.kaggle.com/datasets/danofer/dbpedia-classes).
 
@@ -58,7 +53,7 @@ sh shifter_train.sh # please process HotpotQA-SUBQ data (see below) before this
 ```bash
 cd classifier_shifter
 python theme_predictor.py
-```
+``` -->
 
 ### Train Text-to-Triples Model
 
