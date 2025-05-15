@@ -122,11 +122,6 @@ sh test_answerer.sh
 cd knowledge_indexing
 sh download_corpora.sh
 
-# Theme Indexing
-cd theme
-sh class_labeling.sh
-sh convert.sh
-
 # Dense Indexing
 cd ../dense
 sh dense_index.sh
