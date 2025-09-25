@@ -1,6 +1,6 @@
 # RAS: Retrieval-And-Structuring for Knowledge-Intensive LLM Generation
 
-![alt text](/images/overview.png "Overview of RAS")
+![alt text](overview.png "Overview of RAS")
 ---
 ### Table of Contents
 - [Environment Setup](#environment-setup)
