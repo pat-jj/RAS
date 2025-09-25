@@ -115,7 +115,7 @@ sh test_answerer.sh
 ```
 
 
-### Knowledge Indexing (Prepare both Theme and Dense Faiss Indexes)
+### Knowledge Indexing (Faiss)
 
 ```bash
 # Download corpora
