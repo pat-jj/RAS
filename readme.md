@@ -68,7 +68,7 @@ sh train.sh
 
 
 ### Training Data (HotpotQA-SUBQ) Processing
-You can download the processed data from [here](https://huggingface.co/datasets/pat-jj/ras_train_data/tree/main).
+You can obtain our processed data (`train_data.jsonl`) under the `hotpotqa_subq` folder in our supplemental materials.
 
 Alternatively, you can process the data by yourself as follows:
 
