@@ -220,10 +220,13 @@ def remove_citations(sent):
 
 
 def mauve_score(predictions, references):
+    import torch
+    # Use CPU if CUDA not available, otherwise use GPU 0
+    device_id = 0 if torch.cuda.is_available() else -1
     mauve_results = mauve.compute_mauve(
         p_text=references,
         q_text=predictions,
-        device_id=4,
+        device_id=device_id,
         max_text_length=512,
         verbose=True,
         batch_size=8,

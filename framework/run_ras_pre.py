@@ -8,7 +8,7 @@ from models.graphllm_ans_v2 import GraphLLM as Answerer
 from models.graphllm_pla_v2 import GraphLLM as Planner
 from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document, load_file, ras_asqa_sonnet, ras_eli5_sonnet, convert_triple_str_to_graph, ALCE_2_SHOT_TRIPLES_INST
 from tqdm import tqdm
-from td_retriever import ThemeScopedRetriever
+from td_retriever import DenseRetriever
 from sonnet import planner_sonnet, answerer_sonnet, text_to_triples_sonnet
 from safetensors.torch import load_model
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
@@ -110,14 +110,11 @@ def read_args():
     parser.add_argument('--knowledge_source', type=str, default='wiki_2017', choices=['wiki_2017', 'wiki_2018', 'wiki_2020'])
     parser.add_argument('--knowledge_path', type=str, default='')
     parser.add_argument('--dense_encoder', type=str, default='facebook/contriever-msmarco')
-    parser.add_argument('--theme_encoder_path', type=str, default='/shared/eng/pj20/firas_data/classifiers/best_model')
-    parser.add_argument('--theme_shifter_path', type=str, default='/shared/eng/pj20/firas_data/classifiers/best_distribution_mapper.pt')
     parser.add_argument('--text_to_triples_model', type=str, default='pat-jj/text2triple-flan-t5', choices=['pat-jj/text2triple-flan-t5', 'sonnet'])
     parser.add_argument('--planner_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'sonnet'])
     parser.add_argument('--planner_checkpoint', type=str, default='')
     parser.add_argument('--answerer_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'sonnet'])
     parser.add_argument('--answerer_checkpoint', type=str, default='')
-    parser.add_argument('--retrieval_mode', type=str, default='theme_and_dense', choices=['theme_and_dense', 'dense_only'])
     parser.add_argument('--max_answer_length', type=int, default=100)
     parser.add_argument('--max_iteration', type=int, default=3)
     parser.add_argument('--debug', action='store_true')

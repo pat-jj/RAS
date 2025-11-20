@@ -119,10 +119,12 @@ def call_model_batch(prompts: List[str], model_name: str = "sonnet", num_threads
                     except Exception as e:
                         retry_count += 1
                         if retry_count == 3:
+                            print(f"Error after 3 retries for prompt {idx}: {str(e)}")
                             results[idx] = ""
                             error_count += 1
                         else:
-                            time.sleep(0.1 * (2 ** retry_count))  # Exponential backoff
+                            # Exponential backoff with longer delays to avoid rate limiting
+                            time.sleep(1.0 * (2 ** retry_count))  # Longer delays
                 prompt_queue.task_done()
             except queue.Empty:
                 return
@@ -161,6 +163,10 @@ def main():
     parser.add_argument('--task', type=str)
     parser.add_argument('--prompt_name', type=str, default="prompt_no_input")
     parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--num_threads', type=int, default=8,
+                        help="Number of worker threads (5-10 recommended to avoid rate limiting)")
+    parser.add_argument("--model_name", type=str, default="sonnet",
+                        help="Model name (sonnet, sonnet4.5, haiku, opus, claude)")
     parser.add_argument("--choices",  type=str, default=None,
                         help="space-separated answer candidates")
     parser.add_argument("--instruction",  type=str,
@@ -168,8 +174,11 @@ def main():
     args = parser.parse_args()
 
 
+    # Limit num_threads to 5-10 to avoid rate limiting
+    num_threads = max(5, min(10, args.num_threads))
+
     sure_framework = SuREFramework(
-        model_caller=lambda prompts: call_model_batch(prompts, "sonnet", 8, args.max_new_tokens)
+        model_caller=lambda prompts: call_model_batch(prompts, args.model_name, num_threads, args.max_new_tokens)
     )
     input_data = load_file(args.input_file)
     # input_data = random.sample(input_data, 200)

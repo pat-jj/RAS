@@ -18,3 +18,9 @@ eval_.ipynb
 plot
 train_llama.sh
 play.py
+KnowTrace
+classifier_shifter_old_version
+.nfs*
+*.txt
+=*
+others

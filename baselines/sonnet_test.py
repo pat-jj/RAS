@@ -36,10 +36,12 @@ def call_model_batch(prompts: List[str], model_name: str = "sonnet", num_threads
                     except Exception as e:
                         retry_count += 1
                         if retry_count == 3:
+                            print(f"Error after 3 retries for prompt {idx}: {str(e)}")
                             results[idx] = ""
                             error_count += 1
                         else:
-                            time.sleep(0.1 * (2 ** retry_count))  # Exponential backoff
+                            # Exponential backoff with longer delays to avoid rate limiting
+                            time.sleep(1.0 * (2 ** retry_count))  # Longer delays
                 prompt_queue.task_done()
             except queue.Empty:
                 return
@@ -78,6 +80,10 @@ def main():
     parser.add_argument('--task', type=str)
     parser.add_argument('--prompt_name', type=str, default="prompt_no_input")
     parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--num_threads', type=int, default=8,
+                        help="Number of worker threads (5-10 recommended to avoid rate limiting)")
+    parser.add_argument("--model_name", type=str, default="sonnet",
+                        help="Model name (sonnet, sonnet4.5, haiku, opus, claude)")
     parser.add_argument("--choices",  type=str, default=None,
                         help="space-separated answer candidates")
     parser.add_argument("--instruction",  type=str,
@@ -183,9 +189,12 @@ def main():
         if "2wikimultihop" in args.input_file:
             item["instruction"] = TASK_INST[args.task] + "\n" + item["question"]
                 
-    # Process all items in larger batches for better throughput
-    batch_size = max(args.batch_size, 32)  # Use larger batches
+    # Process items in batches (use batch_size directly, don't force minimum)
+    batch_size = args.batch_size
     final_results = []
+    
+    # Limit num_threads to 5-10 to avoid rate limiting
+    num_threads = max(5, min(10, args.num_threads))
     
     with tqdm(total=len(input_data)) as pbar:
         for idx in range(0, len(input_data), batch_size):
@@ -194,8 +203,8 @@ def main():
                 PROMPT_DICT[args.prompt_name].format_map(item) for item in batch
             ]
             
-            # Process batch with optimized threading
-            preds = call_model_batch(processed_batch, num_threads=8, max_new_tokens=args.max_new_tokens)
+            # Process batch with optimized threading (use configurable num_threads)
+            preds = call_model_batch(processed_batch, model_name=args.model_name, num_threads=num_threads, max_new_tokens=args.max_new_tokens)
             
             # Update results
             for j, (item, pred) in enumerate(zip(batch, preds)):

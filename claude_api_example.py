@@ -19,7 +19,8 @@ BEDROCK_MODEL_NAME_MAP = {
     "claude": "anthropic.claude-v2:1",  # default to sonnet
     "hiku": "anthropic.claude-3-haiku-20240307-v1:0",
     "sonnet": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "opus": "anthropic.claude-3-opus-20240229-v1:0"
+    "opus": "anthropic.claude-3-opus-20240229-v1:0",
+    "sonnet4.5": "anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
 
 

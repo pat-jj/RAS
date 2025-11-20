@@ -6,9 +6,10 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5Tokenizer, T5ForConditionalGeneration
 from models.graphllm_ans_v2 import GraphLLM as Answerer
 from models.graphllm_pla_v2 import GraphLLM as Planner
+from models.graphllm_pla_8b_qwen import GraphLLM as PlannerQwen
 from utils import GraphProcessor, get_planner_instruction, get_answerer_instruction, text_to_triples, TASK_INST, clean_document, load_file, ras_asqa_sonnet, ras_eli5_sonnet, convert_triple_str_to_graph
 from tqdm import tqdm
-from td_retriever import ThemeScopedRetriever
+from td_retriever import DenseRetriever
 from sonnet import planner_sonnet, answerer_sonnet, text_to_triples_sonnet
 from safetensors.torch import load_model
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
@@ -101,7 +102,11 @@ def load_models(args):
     if args.planner_model != 'sonnet':
         print(f"Using {args.planner_model} as planner model, initializing model ...")
         args.llm_frozen = args.planner_frozen
-        planner_model = Planner(args)
+        # Use Qwen model if specified
+        if args.planner_model == 'qwen3-8b':
+            planner_model = PlannerQwen(args)
+        else:
+            planner_model = Planner(args)
         load_model(planner_model, args.planner_checkpoint)
     else:
         planner_model = "sonnet"
@@ -110,7 +115,11 @@ def load_models(args):
     if args.answerer_model != 'sonnet':
         print(f"Using {args.answerer_model} as answerer model, initializing model ...")
         args.llm_frozen = args.answerer_frozen
-        answerer_model = Answerer(args)
+        # Use Qwen model if specified (multitask model works for both planner and answerer)
+        if args.answerer_model == 'qwen3-8b':
+            answerer_model = PlannerQwen(args)  # Same model architecture for multitask
+        else:
+            answerer_model = Answerer(args)
         load_model(answerer_model, args.answerer_checkpoint)
     else:
         answerer_model = "sonnet"
@@ -309,7 +318,8 @@ def ras(args, models, question, context, graph_processor, retriever):
         }
     
         with torch.no_grad():
-            answerer_output = answerer_model.inference(answerer_input)['pred'][0].split("")[0]
+            # inference() now returns only generated tokens (no input), so no need to split
+            answerer_output = answerer_model.inference(answerer_input)['pred'][0]
     else:
         answerer_output = answerer_sonnet(inputs[-1], max_answer_length=args.max_answer_length)
         
@@ -329,18 +339,15 @@ def read_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, nargs='+', default=['popqa'],
                        help='Dataset name(s) - can be single string or list of strings')
-    parser.add_argument('--test_data_path', type=str, default='/shared/eng/pj20/firas_data/test_datasets')
+    parser.add_argument('--test_data_path', type=str, default='/shared/rsaas/pj20/firas_data/test_datasets')
     parser.add_argument('--knowledge_source', type=str, default='wiki_2017', choices=['wiki_2017', 'wiki_2018', 'wiki_2020'])
     parser.add_argument('--knowledge_path', type=str, default='')
     parser.add_argument('--dense_encoder', type=str, default='facebook/contriever-msmarco')
-    parser.add_argument('--theme_encoder_path', type=str, default='/shared/eng/pj20/firas_data/classifiers/best_model')
-    parser.add_argument('--theme_shifter_path', type=str, default='/shared/eng/pj20/firas_data/classifiers/best_distribution_mapper.pt')
     parser.add_argument('--text_to_triples_model', type=str, default='pat-jj/text2triple-flan-t5', choices=['pat-jj/text2triple-flan-t5', 'sonnet'])
-    parser.add_argument('--planner_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'sonnet'])
+    parser.add_argument('--planner_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'qwen3-8b', 'sonnet'])
     parser.add_argument('--planner_checkpoint', type=str, default='')
-    parser.add_argument('--answerer_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'sonnet'])
+    parser.add_argument('--answerer_model', type=str, default='llama2-7b', choices=['llama2-7b', 'llama3-8b', 'qwen3-8b', 'sonnet'])
     parser.add_argument('--answerer_checkpoint', type=str, default='')
-    parser.add_argument('--retrieval_mode', type=str, default='theme_and_dense', choices=['theme_and_dense', 'dense_only'])
     parser.add_argument('--max_answer_length', type=int, default=100)
     parser.add_argument('--max_iteration', type=int, default=3)
     parser.add_argument('--debug', action='store_true')
@@ -376,7 +383,7 @@ def main():
         retriever = None
     else:
         print("Loading retriever...")
-        retriever = ThemeScopedRetriever(retrieval_mode=args.retrieval_mode, debug=args.debug)
+        retriever = DenseRetriever(debug=args.debug)
 
     print("Loading graph processor...")
     graph_processor = GraphProcessor()
@@ -392,8 +399,10 @@ def main():
         print("Loading data...")
         data, questions, q2c, others = load_data(args)
         
+        # Normalize model name for filename (qwen3-8b -> qwen3_8b)
+        planner_name = args.planner_model.replace('-', '_')
         output_path = os.path.join(args.test_data_path, 
-                                 dataset + f"_test_output_{args.planner_model}_{args.answerer_model}_v3.json")
+                                 dataset + f"_test_output_{planner_name}_{args.answerer_model}_v3.json")
         
         if os.path.exists(output_path):
             print(f"Load existing output for {dataset}...")

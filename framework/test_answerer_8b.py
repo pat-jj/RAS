@@ -54,14 +54,15 @@ def run_inference(model, test_loader):
                 
                 # Store results for each sample in batch
                 for i in range(len(outputs['input'])):
+                    # inference() now returns only generated tokens, so no need to split
                     result = {
                         'input': outputs['input'][i],
-                        'prediction': outputs['pred'][i].split("<|end_of_text|>")[0],
+                        'prediction': outputs['pred'][i],
                         'label': outputs['label'][i]
                     }
                     all_results.append(result)
                     print(f"INPUT: {outputs['input'][i]}")
-                    print(f"PREDICTION: {outputs['pred'][i].split('<|end_of_text|>')[0]}")
+                    print(f"PREDICTION: {outputs['pred'][i]}")
                     print(f"LABEL: {outputs['label'][i]}")
                     
             except Exception as e:
